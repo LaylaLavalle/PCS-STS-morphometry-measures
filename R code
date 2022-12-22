@@ -1,0 +1,3404 @@
+---
+title: "sulci_morphometry R Notebook"
+author: layla lavalle
+date: 01/31/2022
+output: 
+  html_notebook:
+    toc:true
+    toc_float: true
+    toc_depth: 2
+    number_sections: true
+---
+
+# import the packages
+```{r}
+required.packages <- c("readr", "gapminder", "car",
+                       "data.table", "rstatix", "outliers",
+                       "knitr","xtable", "ggpubr", "rstanarm", "insight", "FSA",
+                       "stringr","tidyr","plyr","dplyr", "tidyverse", "remotes", "bayestestR",
+                       "ggplot2","ggthemes","scales","cowplot","RColorBrewer", "reshape2", "bayesplot", "emmeans")
+
+
+for(p in required.packages){
+  if(!require(p,character.only = TRUE)) install.packages(p)
+  library(p,character.only = TRUE)
+}
+```
+
+
+# import the data
+
+## creates a personalized reader
+```{r}
+File_Reader <- function(lambda){ #personalized reader
+  read.csv2(lambda, header=TRUE, sep=";", colClasses = "character")}
+```
+
+###mcic
+
+#### import the data frames with the PCS measures
+```{r}
+mcic_pcs_files <- list.files(path="/Users/laylalavalle/Desktop/manual_PCS/scripts/mcic_measures/", #creates a list of data frames with the pattern "*pcs"
+                 full.names=TRUE, pattern="*pcs.csv") 
+
+mcic_pcs_list <- map(mcic_pcs_files, File_Reader) #read the .csv
+
+remove1 <- c("/Users/laylalavalle/Desktop/manual_PCS/scripts/mcic_measures//|subj|_acpc_linreg_default_session_auto_sulcal_morphometry_pcs.csv") #remove the unnecessary characters to just have the names of the subjects
+names(mcic_pcs_list) <- str_remove_all(mcic_pcs_files, pattern=remove1)
+```
+
+#### import the data frames with the STS measures
+```{r}
+mcic_sts_files <- grep(list.files(path="/Users/laylalavalle/Desktop/manual_PCS/scripts/mcic_measures/",full.names=TRUE), #creates a list of data frames without the pattern "*pcs"
+                pattern='_pcs', invert=TRUE, value=TRUE) 
+
+mcic_sts_list <- map(mcic_sts_files, read.csv2) #read the .csv
+
+remove2 <- c("/Users/laylalavalle/Desktop/manual_PCS/scripts/mcic_measures//|subj|_acpc_linreg_default_session_auto_sulcal_morphometry.csv") #remove the unnecessary characters to just have the names of the subjects
+names(mcic_sts_list) <- str_remove_all(mcic_sts_files, pattern=remove2) 
+```
+
+#### import the data frame with the manual measures of pcs (only length)
+```{r}
+R_mcic_manual <- read.csv2("/Users/laylalavalle/Desktop/manual_PCS/scripts/manual_measures/R_mcic_manual.csv",sep=";",header=TRUE,na.strings=c("","NA"), colClasses = "character")
+R_mcic_manual
+
+L_mcic_manual <- read.csv2("/Users/laylalavalle/Desktop/manual_PCS/scripts/manual_measures/L_mcic_manual.csv",sep=";",header=TRUE,na.strings=c("","NA"), colClasses = "character")
+L_mcic_manual
+```
+
+# import the data frame with the demographic and clinical information
+```{r}
+MCIC_ClinicalData <- read.csv2("/Users/laylalavalle/Desktop/manual_PCS/scripts/demographic_clinical/MCIC_ClinicalData.csv",sep=";",header=TRUE,na.strings=c("","NA"))
+MCIC_ClinicalData
+```
+
+#cobre
+
+# import the data frames with the PCS measures
+```{r}
+cobre_pcs_files <- list.files(path="/Users/laylalavalle/Desktop/manual_PCS/scripts/cobre_measures", #creates a list of data frames with the pattern "*pcs"
+                 full.names=TRUE, pattern="*pcs.csv") 
+
+cobre_pcs_list <- map(cobre_pcs_files, File_Reader) #read the .csv
+
+remove1 <- c("/Users/laylalavalle/Desktop/manual_PCS/scripts/cobre_measures/|subj|_acpc_linreg_default_session_auto_sulcal_morphometry_pcs.csv") #remove the unnecessary characters to just have the names of the subjects
+names(cobre_pcs_list) <- str_remove_all(cobre_pcs_files, pattern=remove1)
+```
+
+# import the data frames with the STS measures
+```{r}
+cobre_sts_files <- grep(list.files(path="/Users/laylalavalle/Desktop/manual_PCS/scripts/cobre_measures/",full.names=TRUE), #creates a list of data frames without the pattern "*pcs"
+                pattern='_pcs', invert=TRUE, value=TRUE) 
+
+cobre_sts_list <- map(cobre_sts_files, read.csv2) #read the .csv
+
+remove2 <- c("/Users/laylalavalle/Desktop/manual_PCS/scripts/cobre_measures//|subj|_acpc_linreg_default_session_auto_sulcal_morphometry.csv") #remove the unnecessary characters to just have the names of the subjects
+names(cobre_sts_list) <- str_remove_all(cobre_sts_files, pattern=remove2) 
+```
+
+# import the data frame with the manual measures of pcs (only length)
+```{r}
+L_cobre_manual <- read.csv2("/Users/laylalavalle/Desktop/manual_PCS/scripts/manual_measures/L_cobre_manual.csv",sep=";",header=TRUE,na.strings=c("","NA"), colClasses = "character")
+L_cobre_manual
+
+R_cobre_manual <- read.csv2("/Users/laylalavalle/Desktop/manual_PCS/scripts/manual_measures/R_cobre_manual.csv",sep=";",header=TRUE,na.strings=c("","NA"), colClasses = "character")
+R_cobre_manual
+```
+
+# import the data frame with the demographic and clinical information
+```{r}
+COBRE_ClinicalData <- read.csv2("/Users/laylalavalle/Desktop/manual_PCS/scripts/demographic_clinical/COBRE_ClinicalData.csv",sep=";",header=TRUE,na.strings=c("","NA"))
+COBRE_ClinicalData
+```
+
+
+# rearrange the data
+# rearrange the data frames with the sulci measures
+
+#mcic
+
+# rearrange the pcs data
+```{r}
+mcic_pcs_list <- lapply(mcic_pcs_list, function(x) {
+          x %>% slice(-c(1:52, 55:123))
+})
+
+mcic_bind_pcs <- bind_rows(mcic_pcs_list, .id="subj") #bind the subjects
+mcic_bind_pcs <- subset(mcic_bind_pcs, select = -c(
+  sulcus, 
+  label, surface_talairach, 
+  surface_native, maxdepth_talairach, GM_thickness,
+  maxdepth_native, meandepth_talairach, hull_junction_length_talairach, opening)) #delete all the irrelevant columns
+mcic_bind_pcs
+
+mcic_bind_pcs <- split(mcic_bind_pcs, mcic_bind_pcs$side) #split the left and the right side
+
+names(mcic_bind_pcs$left)[names(mcic_bind_pcs$left) == 'meandepth_native'] <- 'L_PCSdepth' #rename the left side columns
+names(mcic_bind_pcs$left)[names(mcic_bind_pcs$left) == 'hull_junction_length_native'] <- 'L_PCSlength'
+mcic_bind_pcs$left <- subset(mcic_bind_pcs$left, select = -c(side)) #delete all the irrelevant columns
+mcic_bind_pcs$left
+
+names(mcic_bind_pcs$right)[names(mcic_bind_pcs$right) == 'meandepth_native'] <- 'R_PCSdepth' #rename the right side columns
+names(mcic_bind_pcs$right)[names(mcic_bind_pcs$right) == 'hull_junction_length_native'] <- 'R_PCSlength'
+mcic_bind_pcs$right <- subset(mcic_bind_pcs$right, select = -c(side)) #delete all the irrelevant columns
+mcic_bind_pcs$right
+
+mcic_merge_pcs <- mcic_bind_pcs$left %>% #merge the right and left PCS measurements into one data frame
+  right_join(mcic_bind_pcs$right, by="subj")
+mcic_merge_pcs
+
+cols.num <- c("L_PCSdepth","L_PCSlength", #convert columns from character to numeric format
+              "R_PCSdepth","R_PCSlength")
+mcic_merge_pcs[cols.num] <- sapply(mcic_merge_pcs[cols.num],as.numeric)
+sapply(mcic_merge_pcs, class)
+
+mcic_merge_pcs$L_PCSdepth[is.nan(mcic_merge_pcs$L_PCSdepth)]<-NA #NaN are now NA values
+mcic_merge_pcs$L_PCSlength[is.nan(mcic_merge_pcs$L_PCSlength)]<-NA
+mcic_merge_pcs$R_PCSdepth[is.nan(mcic_merge_pcs$R_PCSdepth)]<-NA
+mcic_merge_pcs$R_PCSlength[is.nan(mcic_merge_pcs$R_PCSlength)]<-NA
+
+mcic_merge_pcs
+```
+
+# rearrange the sts data
+```{r}
+mcic_sts_list <- lapply(mcic_sts_list, function(x) { #keep only the rows with the sts measures
+          x %>% slice(-c(1:113, 116:123))
+})
+
+mcic_bind_sts <- bind_rows(mcic_sts_list, .id="subj") #bind the subjects
+mcic_bind_sts <- subset(mcic_bind_sts, select = -c(
+  sulcus, 
+  label, surface_talairach, 
+  surface_native, maxdepth_talairach, GM_thickness,
+  maxdepth_native, meandepth_talairach, hull_junction_length_talairach, opening)) #delete all the irrelevant columns
+mcic_bind_pcs
+
+
+mcic_bind_sts <- split(mcic_bind_sts, mcic_bind_sts$side) #split the left and the right side
+
+names(mcic_bind_sts$left)[names(mcic_bind_sts$left) == 'meandepth_native'] <- 'L_STSdepth' #rename the left side columns
+names(mcic_bind_sts$left)[names(mcic_bind_sts$left) == 'hull_junction_length_native'] <- 'L_STSlength'
+mcic_bind_sts$left <- subset(mcic_bind_sts$left, select = -c(side)) #delete all the irrelevant columns
+mcic_bind_sts$left
+
+names(mcic_bind_sts$right)[names(mcic_bind_sts$right) == 'meandepth_native'] <- 'R_STSdepth' #rename the right side columns
+names(mcic_bind_sts$right)[names(mcic_bind_sts$right) == 'hull_junction_length_native'] <- 'R_STSlength'
+mcic_bind_sts$right <- subset(mcic_bind_sts$right, select = -c(side)) #delete all the irrelevant columns
+mcic_bind_sts$right
+
+mcic_merge_sts <- mcic_bind_sts$left %>% #merge the right and left PCS measurements into one data frame
+  right_join(mcic_bind_sts$right, by="subj")
+mcic_merge_sts
+
+
+cols.num <- c("L_STSdepth","L_STSlength", #convert columns from character to numeric format
+              "R_STSdepth","R_STSlength")
+mcic_merge_sts[cols.num] <- sapply(mcic_merge_sts[cols.num],as.numeric)
+sapply(mcic_merge_sts, class)
+
+mcic_merge_sts$L_STSdepth[is.nan(mcic_merge_sts$L_STSdepth)]<-NA #NaN are now NA values
+mcic_merge_sts$L_STSlength[is.nan(mcic_merge_sts$L_STSlength)]<-NA
+mcic_merge_sts$R_STSdepth[is.nan(mcic_merge_sts$R_STSdepth)]<-NA
+mcic_merge_sts$R_STSlength[is.nan(mcic_merge_sts$R_STSlength)]<-NA
+
+mcic_merge_sts
+```
+
+# merge the pcs and sts measures into one data frame
+```{r}
+mcic_merge_pcs_sts <- mcic_merge_pcs %>% #merge pcs and sts Brainvisa measures
+  right_join(mcic_merge_sts, by="subj")
+mcic_merge_pcs_sts
+
+R_mcic_manual["R_PCSlength"] <- sapply(R_mcic_manual["R_PCSlength"],as.numeric)
+sapply(R_mcic_manual, class)
+R_mcic_manual
+
+L_mcic_manual["L_PCSlength"] <- sapply(L_mcic_manual["L_PCSlength"],as.numeric) #manual pcs measures are now numeric
+sapply(L_mcic_manual, class)
+L_mcic_manual
+
+mcic_merge_pcs_sts <- mcic_merge_pcs_sts %>% #merge Brainvisa measures with manual pcs measures
+  rows_update(L_mcic_manual %>% filter(!is.na(L_PCSlength)), by="subj")
+mcic_merge_pcs_sts
+
+mcic_merge_pcs_sts <- mcic_merge_pcs_sts %>% #merge Brainvisa measures with manual pcs measures
+  rows_update(R_mcic_manual %>% filter(!is.na(R_PCSlength)), by="subj")
+mcic_merge_pcs_sts
+
+mcic_merge_pcs_sts$R_PCSdepth[is.na(mcic_merge_pcs_sts$R_PCSdepth) & is.na(mcic_merge_pcs_sts$R_PCSlength)] = 0 #depth is null when there is no PCS, otherwise depth is NA (the PCS was manually measured)
+mcic_merge_pcs_sts$L_PCSdepth[is.na(mcic_merge_pcs_sts$L_PCSdepth) & is.na(mcic_merge_pcs_sts$L_PCSlength)] = 0 
+mcic_merge_pcs_sts
+
+mcic_merge_pcs_sts$R_PCSlength[is.na(mcic_merge_pcs_sts$R_PCSlength)] = 0 #remplace all PCS NA values by 0
+mcic_merge_pcs_sts$L_PCSlength[is.na(mcic_merge_pcs_sts$L_PCSlength)] = 0
+mcic_merge_pcs_sts
+```
+
+# rearrange MCIC_Clinical data
+```{r}
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_01'] <- 'site' #rename relevant columns
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_02'] <- 'clinical_status'
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_03'] <- 'age'
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_04'] <- 'sex'
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_26'] <- 'SAPS_hallucinations'
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_25'] <- 'SAPS_delusions'
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_29'] <- 'SAPS'
+names(MCIC_ClinicalData)[names(MCIC_ClinicalData) == 'MCICSHARE_30'] <- 'SANS'
+
+
+MCIC_ClinicalData["subj"] <- sapply(MCIC_ClinicalData["subj"],as.character) #'subj' is now characters
+
+MCIC_ClinicalData <- subset(MCIC_ClinicalData, select = c(subj,site,eTIV, #delete all the irrelevant columns from MCIC_ClincalData
+                                                          clinical_status,age,sex,
+                                                          SAPS_hallucinations,SAPS_delusions,SAPS,SANS))
+MCIC_ClinicalData
+```
+
+# creates the final data frame with sulci measures and demographic/clinical data
+```{r}
+mcic_data <- mcic_merge_pcs_sts %>% #merge the sulci measures and clinical information into one data frame
+  inner_join(MCIC_ClinicalData, by="subj")
+mcic_data
+
+mcic_data$site <- as.factor(mcic_data$site) #categorical variables are now dummy
+mcic_data$site <- unclass(mcic_data$site)
+mcic_data$clinical_status <- as.factor(mcic_data$clinical_status)
+mcic_data$clinical_status <- unclass(mcic_data$clinical_status)
+mcic_data$sex <- as.factor(mcic_data$sex)
+mcic_data$sex <- unclass(mcic_data$sex)
+
+mcic_data$SAPS_delusions <- as.numeric(mcic_data$SAPS_delusions) #clinical variables are now numeric
+mcic_data$SAPS_hallucinations <- as.numeric(mcic_data$SAPS_hallucinations)
+mcic_data$SAPS <- as.numeric(mcic_data$SAPS)
+mcic_data$SANS <- as.numeric(mcic_data$SANS)
+mcic_data$age <- as.numeric(mcic_data$age)
+mcic_data$eTIV <- as.numeric(mcic_data$eTIV)
+
+```
+
+
+#cobre
+
+# rearrange the pcs data
+```{r}
+cobre_pcsList <- lapply(cobre_pcs_list, function(x) {
+          x %>% slice(-c(1:52, 55:123))
+})
+
+cobre_bind_pcs <- bind_rows(cobre_pcsList, .id="subj") #bind the subjects
+cobre_bind_pcs <- subset(cobre_bind_pcs, select = -c(
+  sulcus, 
+  label, surface_talairach, 
+  surface_native, maxdepth_talairach, GM_thickness,
+  maxdepth_native, meandepth_talairach, hull_junction_length_talairach, opening)) #delete all the irrelevant columns
+cobre_bind_pcs
+
+cobre_bind_pcs <- split(cobre_bind_pcs, cobre_bind_pcs$side) #split the left and the right side
+
+names(cobre_bind_pcs$left)[names(cobre_bind_pcs$left) == 'meandepth_native'] <- 'L_PCSdepth' #rename the left side columns
+names(cobre_bind_pcs$left)[names(cobre_bind_pcs$left) == 'hull_junction_length_native'] <- 'L_PCSlength'
+cobre_bind_pcs$left <- subset(cobre_bind_pcs$left, select = -c(side)) #delete all the irrelevant columns
+cobre_bind_pcs$left
+
+names(cobre_bind_pcs$right)[names(cobre_bind_pcs$right) == 'meandepth_native'] <- 'R_PCSdepth' #rename the right side columns
+names(cobre_bind_pcs$right)[names(cobre_bind_pcs$right) == 'hull_junction_length_native'] <- 'R_PCSlength'
+cobre_bind_pcs$right <- subset(cobre_bind_pcs$right, select = -c(side)) #delete all the irrelevant columns
+cobre_bind_pcs$right
+
+cobre_merge_pcs <- cobre_bind_pcs$left %>% #merge the right and left PCS measurements into one data frame
+  right_join(cobre_bind_pcs$right, by="subj")
+cobre_merge_pcs
+
+cols.num <- c("L_PCSdepth","L_PCSlength", #convert columns from character to numeric format
+              "R_PCSdepth","R_PCSlength")
+cobre_merge_pcs[cols.num] <- sapply(cobre_merge_pcs[cols.num],as.numeric)
+sapply(cobre_merge_pcs, class)
+
+cobre_merge_pcs$L_PCSdepth[is.nan(cobre_merge_pcs$L_PCSdepth)]<-NA #NaN are now NA values
+cobre_merge_pcs$L_PCSlength[is.nan(cobre_merge_pcs$L_PCSlength)]<-NA
+cobre_merge_pcs$R_PCSdepth[is.nan(cobre_merge_pcs$R_PCSdepth)]<-NA
+cobre_merge_pcs$R_PCSlength[is.nan(cobre_merge_pcs$R_PCSlength)]<-NA
+
+cobre_merge_pcs
+```
+
+# rearrange the sts data
+```{r}
+cobre_stsList <- lapply(cobre_sts_list, function(x) { #keep only the rows with the sts measures
+          x %>% slice(-c(1:113, 116:123))
+})
+
+cobre_bind_sts <- bind_rows(cobre_stsList, .id="subj") #bind the subjects
+cobre_bind_sts <- subset(cobre_bind_sts, select = -c(
+  sulcus, 
+  label, surface_talairach, 
+  surface_native, maxdepth_talairach, GM_thickness,
+  maxdepth_native, meandepth_talairach, hull_junction_length_talairach, opening)) #delete all the irrelevant columns
+cobre_bind_pcs
+
+
+cobre_bind_sts <- split(cobre_bind_sts, cobre_bind_sts$side) #split the left and the right side
+
+names(cobre_bind_sts$left)[names(cobre_bind_sts$left) == 'meandepth_native'] <- 'L_STSdepth' #rename the left side columns
+names(cobre_bind_sts$left)[names(cobre_bind_sts$left) == 'hull_junction_length_native'] <- 'L_STSlength'
+cobre_bind_sts$left <- subset(cobre_bind_sts$left, select = -c(side)) #delete all the irrelevant columns
+cobre_bind_sts$left
+
+names(cobre_bind_sts$right)[names(cobre_bind_sts$right) == 'meandepth_native'] <- 'R_STSdepth' #rename the right side columns
+names(cobre_bind_sts$right)[names(cobre_bind_sts$right) == 'hull_junction_length_native'] <- 'R_STSlength'
+cobre_bind_sts$right <- subset(cobre_bind_sts$right, select = -c(side)) #delete all the irrelevant columns
+cobre_bind_sts$right
+
+cobre_merge_sts <- cobre_bind_sts$left %>% #merge the right and left PCS measurements into one data frame
+  right_join(cobre_bind_sts$right, by="subj")
+cobre_merge_sts
+
+
+cols.num <- c("L_STSdepth","L_STSlength", #convert columns from character to numeric format
+              "R_STSdepth","R_STSlength")
+cobre_merge_sts[cols.num] <- sapply(cobre_merge_sts[cols.num],as.numeric)
+sapply(cobre_merge_sts, class)
+
+cobre_merge_sts$L_STSdepth[is.nan(cobre_merge_sts$L_STSdepth)]<-NA #NaN are now NA values
+cobre_merge_sts$L_STSlength[is.nan(cobre_merge_sts$L_STSlength)]<-NA
+cobre_merge_sts$R_STSdepth[is.nan(cobre_merge_sts$R_STSdepth)]<-NA
+cobre_merge_sts$R_STSlength[is.nan(cobre_merge_sts$R_STSlength)]<-NA
+
+cobre_merge_sts
+```
+
+# merge the pcs and sts measures into one data frame
+```{r}
+cobre_merge_pcs_sts <- cobre_merge_pcs %>% #merge pcs and sts Brainvisa measures
+  right_join(cobre_merge_sts, by="subj")
+cobre_merge_pcs_sts
+
+cobre_merge_pcs_sts$subj <- as.numeric(cobre_merge_pcs_sts$subj) #the cobre dataset will follow the mcic dataset
+cobre_merge_pcs_sts <- cobre_merge_pcs_sts %>% 
+  mutate(subj=subj + 184)
+cobre_merge_pcs_sts$subj <- as.character(cobre_merge_pcs_sts$subj)
+
+L_cobre_manual["L_PCSlength"] <- sapply(L_cobre_manual["L_PCSlength"],as.numeric) #manual pcs measures are now numeric
+sapply(L_cobre_manual, class)
+L_cobre_manual
+
+R_cobre_manual["R_PCSlength"] <- sapply(R_cobre_manual["R_PCSlength"],as.numeric)
+sapply(R_cobre_manual, class)
+R_cobre_manual
+
+L_cobre_manual$subj <- as.numeric(L_cobre_manual$subj) #the cobre dataset will follow the mcic dataset
+L_cobre_manual <- L_cobre_manual %>% 
+  mutate(subj=subj + 184)
+L_cobre_manual$subj <- as.character(L_cobre_manual$subj)
+
+R_cobre_manual$subj <- as.numeric(R_cobre_manual$subj) #the cobre dataset will follow the mcic dataset
+R_cobre_manual <- R_cobre_manual %>% 
+  mutate(subj=subj + 184)
+R_cobre_manual$subj <- as.character(R_cobre_manual$subj)
+
+cobre_merge_pcs_sts <- cobre_merge_pcs_sts %>% #merge Brainvisa measures with manual pcs measures
+  rows_update(L_cobre_manual %>% filter(!is.na(L_PCSlength)), by="subj")
+cobre_merge_pcs_sts
+
+cobre_merge_pcs_sts <- cobre_merge_pcs_sts %>% #merge Brainvisa measures with manual sts measures
+  rows_update(R_cobre_manual %>% filter(!is.na(R_PCSlength)), by="subj")
+cobre_merge_pcs_sts
+
+cobre_merge_pcs_sts$R_PCSdepth[is.na(cobre_merge_pcs_sts$R_PCSdepth) & is.na(cobre_merge_pcs_sts$R_PCSlength)] = 0 #depth is null when there is no PCS, otherwise depth is NA (the PCS was manually measured)
+cobre_merge_pcs_sts$L_PCSdepth[is.na(cobre_merge_pcs_sts$L_PCSdepth) & is.na(cobre_merge_pcs_sts$L_PCSlength)] = 0 
+cobre_merge_pcs_sts
+
+cobre_merge_pcs_sts$R_PCSlength[is.na(cobre_merge_pcs_sts$R_PCSlength)] = 0 #remplace all PCS NA values by 0
+cobre_merge_pcs_sts$L_PCSlength[is.na(cobre_merge_pcs_sts$L_PCSlength)] = 0
+cobre_merge_pcs_sts
+```
+
+# rearrange COBRE_Clinical data
+```{r}
+COBRE_ClinicalData$subj <- as.numeric(COBRE_ClinicalData$subj) #the cobre dataset will follow the mcic dataset
+COBRE_ClinicalData <- COBRE_ClinicalData %>% 
+  mutate(subj=subj + 184)
+
+COBRE_ClinicalData["subj"] <- sapply(COBRE_ClinicalData["subj"],as.character) #'subj' is now characters
+
+COBRE_ClinicalData <- subset(COBRE_ClinicalData, select = c(subj,age,eTIV, #delete all the irrelevant columns from MCIC_ClincalData
+                                                          P1,P3,sex,clinical_status,
+                                                          PANSS_positive,PANSS_negative,PANSS_total,PANSS_general))
+
+COBRE_ClinicalData
+```
+
+# creates the final data frame with sulci measures and demographic/clinical data
+```{r}
+cobre_data <- cobre_merge_pcs_sts %>% #merge the sulci measures and clinical information into one data frame
+  inner_join(COBRE_ClinicalData, by="subj")
+cobre_data
+
+cobre_data$clinical_status <- as.factor(cobre_data$clinical_status)  #categorical variables are now dummy
+cobre_data$clinical_status <- unclass(cobre_data$clinical_status)
+cobre_data$sex <- as.factor(cobre_data$sex)
+cobre_data$sex <- unclass(cobre_data$sex)
+
+cobre_data$P1 <- as.numeric(cobre_data$P1) #clinical variables are now numeric
+cobre_data$P3 <- as.numeric(cobre_data$P3)
+cobre_data$PANSS_positive <- as.numeric(cobre_data$PANSS_positive)
+cobre_data$PANSS_negative <- as.numeric(cobre_data$PANSS_negative)
+cobre_data$PANSS_general <- as.numeric(cobre_data$PANSS_general)
+cobre_data$PANSS_total <- as.numeric(cobre_data$PANSS_total)
+cobre_data$age <- as.numeric(cobre_data$age)
+cobre_data$eTIV <- as.numeric(cobre_data$eTIV)
+```
+
+
+# add variables
+
+#mcic
+
+# add a 'group' variable by indicating the hallucination status. Patients with schizophrenia were considered as displaying hallucinations is they had a score > 1 at the hallucinations subscale of the SAPS.
+```{r}
+mcic_data <- mcic_data %>% #dummy
+  mutate(group = ifelse(clinical_status==2 & SAPS_hallucinations > 1,3,
+                                     ifelse(clinical_status==2 & SAPS_hallucinations < 1, 2,
+                                            ifelse(clinical_status==1, 1, "NA"))))
+
+mcic_data <- mcic_data %>% #names for the plots
+  mutate(group_names = ifelse(clinical_status==2 & SAPS_hallucinations > 1,"H+",
+                                     ifelse(clinical_status==2 & SAPS_hallucinations < 1, "H-",
+                                            ifelse(clinical_status==1, "HC", "NA"))))
+mcic_data
+
+mcic_data <- mcic_data %>% #names for the plots
+  mutate(clinical_status_names = ifelse(clinical_status==1, "HC", "SZ"))
+mcic_data
+```
+
+#cobre
+
+# add a 'group' variable by indicating the hallucination status. Patients with schizophrenia were considered as displaying hallucinations is they had a score > 1 at the hallucinations subscale of the PANSS.
+```{r}
+cobre_data <- cobre_data %>% #dummy
+  mutate(group = ifelse(clinical_status==2 & P3 > 2,3,
+                                     ifelse(clinical_status==2 & P3 == 1, 2,
+                                            ifelse(clinical_status==1, 1, "NA"))))
+
+cobre_data <- cobre_data %>% #names for the plots
+  mutate(group_names = ifelse(clinical_status==2 & P3 > 2,"H+",
+                                     ifelse(clinical_status==2 & P3 == 1, "H-",
+                                            ifelse(clinical_status==1, "HC", "NA"))))
+cobre_data
+
+cobre_data <- cobre_data %>% #names for the plots
+  mutate(clinical_status_names = ifelse(clinical_status==1, "HC", "SZ"))
+cobre_data
+```
+
+#merge the mcic and cobre data
+```{r}
+mcic_cobre <- rbind.fill(mcic_data, cobre_data)
+
+mcic_cobre <- mcic_cobre %>% #add a variable for the database
+  mutate(database = ifelse(is.na(site), "cobre","mcic_share"))
+
+mcic_cobre$site <- ifelse(mcic_cobre$database == "cobre",4, mcic_cobre$site) #update the sites with cobre
+mcic_cobre
+```
+
+
+# compute the asymetry index (AI)
+# pcs AI
+```{r}
+mcic_cobre <- mcic_cobre %>% #AI for the length
+  mutate(AI_PCSlength = as.numeric(ifelse(
+    mcic_cobre$L_PCSlength=='NaN' | mcic_cobre$R_PCSlength=='NaN',
+    'na',
+    2*(mcic_cobre$R_PCSlength - mcic_cobre$L_PCSlength)/(mcic_cobre$R_PCSlength + mcic_cobre$L_PCSlength)
+  )))
+
+mcic_cobre <- mcic_cobre %>% #AI for the depth
+  mutate(AI_PCSdepth = as.numeric(ifelse(
+    mcic_cobre$L_PCSdepth=='NaN' | mcic_cobre$R_PCSdepth=='NaN',
+    'na',
+    2*(mcic_cobre$R_PCSdepth - mcic_cobre$L_PCSdepth)/(mcic_cobre$R_PCSdepth + mcic_cobre$L_PCSdepth)
+  )))
+
+mcic_cobre$AI_PCSlength[is.nan(mcic_cobre$AI_PCSlength)]<-NA #NaN are now NA values
+mcic_cobre$AI_PCSdepth[is.nan(mcic_cobre$AI_PCSdepth)]<-NA
+mcic_cobre
+```
+
+# sts AI
+```{r}
+mcic_cobre <- mcic_cobre %>% #AI for the lentgh
+  mutate(AI_STSlength = as.numeric(ifelse(
+    mcic_cobre$L_STSlength=='NaN' | mcic_cobre$R_STSlength=='NaN',
+    'na',
+    2*(mcic_cobre$R_STSlength - mcic_cobre$L_STSlength)/(mcic_cobre$R_STSlength + mcic_cobre$L_STSlength)
+  )))
+
+mcic_cobre <- mcic_cobre %>% #AI for the depth
+  mutate(AI_STSdepth = as.numeric(ifelse(
+    mcic_cobre$L_STSdepth=='NaN' | mcic_cobre$R_STSdepth=='NaN',
+    'na',
+    2*(mcic_cobre$R_STSdepth - mcic_cobre$L_STSdepth)/(mcic_cobre$R_STSdepth + mcic_cobre$L_STSdepth)
+  )))
+
+mcic_cobre$AI_STSlength[is.nan(mcic_cobre$AI_STSlength)]<-NA #NaN are now NA values
+mcic_cobre$AI_STSdepth[is.nan(mcic_cobre$AI_STSdepth)]<-NA
+mcic_cobre
+```
+
+# add a PCS status variable indicating if the subjects have a PCS. < 20mm : absent, 20 <= x <= 40 : present, >40mm : prominent (Garrison et al. 2015). Fornito et al. 2007 and Wei et al., 2017 collapsed "present" and "prominent" into one category. PCS classification in AA, PP, AP, PA: Fornito et al., 2007.
+```{r}
+mcic_cobre <- mcic_cobre %>%
+  mutate(R_PCS = ifelse(R_PCSlength > 40, "prominent",
+                 ifelse(between(R_PCSlength, 20, 40), "present",
+                 ifelse(R_PCSlength < 20, "absent", NA))))
+
+mcic_cobre <- mcic_cobre %>%
+  mutate(R_PCS_PresAbs = ifelse(R_PCS=="prominent", "present",
+                         ifelse(R_PCS=="present", "present",
+                         ifelse(R_PCS=="absent", "absent", NA))))
+
+mcic_cobre <- mcic_cobre %>%
+  mutate(L_PCS = ifelse(L_PCSlength > 40, "prominent",
+                 ifelse(between(L_PCSlength, 20, 40), "present",
+                 ifelse(L_PCSlength < 20, "absent", NA))))
+
+mcic_cobre <- mcic_cobre %>%
+  mutate(L_PCS_PresAbs = ifelse(L_PCS=="prominent", "present",
+                         ifelse(L_PCS=="present", "present",
+                         ifelse(L_PCS=="absent", "absent", NA))))
+
+mcic_cobre <- mcic_cobre %>%
+  mutate(PCS_class = ifelse(R_PCS_PresAbs=="absent" & L_PCS_PresAbs=="absent", "AA",
+                     ifelse(R_PCS_PresAbs=="present" & L_PCS_PresAbs=="present", "PP",
+                     ifelse(L_PCS_PresAbs=="absent" & R_PCS_PresAbs=="present", "AP",
+                     ifelse(L_PCS_PresAbs=="present" & R_PCS_PresAbs=="absent", "PA", NA)))))
+
+mcic_cobre
+```
+# table excluding the null PCS values
+```{r}
+mcic_cobre_exc_null <- mcic_cobre 
+mcic_cobre_exc_null$L_PCSlength[mcic_cobre_exc_null$L_PCSlength == 0] <- NA
+mcic_cobre_exc_null$R_PCSlength[mcic_cobre_exc_null$R_PCSlength == 0] <- NA
+mcic_cobre_exc_null$L_PCSdepth[mcic_cobre_exc_null$L_PCSdepth == 0] <- NA
+mcic_cobre_exc_null$R_PCSdepth[mcic_cobre_exc_null$R_PCSdepth == 0] <- NA
+```
+
+
+# frequentist statistics
+
+# descriptive statistics in MCIC+COBRE
+```{r}
+mcic_cobre <- mcic_cobre %>% # group the subjects by clinical status and database
+mutate(clinical_group = ifelse(clinical_status==2 & database=="mcic_share", "mcic_patient",
+                           ifelse(clinical_status==2 & database=="cobre", "cobre_patient",
+                           ifelse(clinical_status==1 & database=="mcic_share", "mcic_control",
+                           ifelse(clinical_status==1 & database=="cobre", "cobre_control", "NA")))))
+
+mcic_cobre <- mcic_cobre %>% # group the subjects by hallucination status and database
+mutate(hallu_status = ifelse(group==1 & database=="mcic_share", "mcic_HC",
+                           ifelse(group==2 & database=="mcic_share", "mcic_H+",
+                           ifelse(group==3 & database=="mcic_share", "mcic_H-",
+                           ifelse(group==1 & database=="cobre", "cobre_HC",
+                           ifelse(group==2 & database=="cobre", "cobre_H+",
+                           ifelse(group==3 & database=="cobre", "cobre_H-","NA")))))))
+
+#filter the subjects with hallu_status different from "NA"
+mcic_cobre_HalluFinal <- filter(mcic_cobre, group!="NA")
+mcic_cobre_HalluFinal
+
+mcic_cobre_HalluFinal_exc_null <- mcic_cobre_HalluFinal 
+mcic_cobre_HalluFinal_exc_null$L_PCSlength[mcic_cobre_HalluFinal_exc_null$L_PCSlength == 0] <- NA
+mcic_cobre_HalluFinal_exc_null$R_PCSlength[mcic_cobre_HalluFinal_exc_null$R_PCSlength == 0] <- NA
+mcic_cobre_HalluFinal_exc_null$L_PCSdepth[mcic_cobre_HalluFinal_exc_null$L_PCSdepth == 0] <- NA
+mcic_cobre_HalluFinal_exc_null$R_PCSdepth[mcic_cobre_HalluFinal_exc_null$R_PCSdepth == 0] <- NA
+
+# group differences in age
+
+shapiro.test(mcic_cobre$age) #normality?
+
+hist(mcic_cobre$age,main='Age distribution in MCIC patients',xlab='Age') # age distribution in mcic patients
+hist(mcic_cobre$age[mcic_cobre$clinical_group=='cobre_patient'],main='Age distribution in COBRE patients',xlab='Age') # age distribution in cobre patients
+hist(mcic_cobre$age[mcic_cobre$clinical_group=='mcic_control'],main='Age distribution in MCIC controls',xlab='Age') # age distribution in mcic controls
+hist(mcic_cobre$age[mcic_cobre$clinical_group=='cobre_control'],main='Age distribution in COBRE controls',xlab='Age') # age distribution in cobre controls
+
+kruskal.test(age~clinical_group, data=mcic_cobre) #age difference by clinical status and database (non-parametric)
+#pairwise.wilcox.test(mcic_cobre$age, mcic_cobre$clinical_group, p.adjust.method = "BH") #The Wilcox Test should be used if every group display the same distribution 
+dunnTest(mcic_cobre$age, mcic_cobre$clinical_group, method = "bh") #Dunn Test is the most popular post-hoc test after Kruskal-Wallis, the p.adj adjusts the p-value for FDR (type I errors) using the bh procedure 
+
+kruskal.test(age~hallu_status, data=mcic_cobre_HalluFinal) #age difference by hallu status and database (non-parametric)
+#pairwise.wilcox.test(mcic_cobre$age, mcic_cobre$hallu_status, p.adjust.method = "BH")
+dunnTest(mcic_cobre_HalluFinal$age, mcic_cobre_HalluFinal$hallu_status, method = "bh") 
+
+mcic_cobre %>% 
+group_by(clinical_group, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age)
+
+mcic_cobre_HalluFinal %>% 
+group_by(hallu_status, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age)
+
+# group difference in sex
+
+chisq_sex_grp <- chisq.test(table(mcic_cobre$sex, mcic_cobre$clinical_group)) #difference in the sex proportion by clinical status and database
+chisq_sex_grp
+table(mcic_cobre$sex, mcic_cobre$clinical_group)
+
+chisq_sex_hallu <- chisq.test(table(mcic_cobre_HalluFinal$sex, mcic_cobre_HalluFinal$hallu_status)) #difference in the sex proportion by hallu status and database
+chisq_sex_hallu
+table(mcic_cobre_HalluFinal$sex, mcic_cobre_HalluFinal$hallu_status)
+# difference in the proportion of patients with hallucinations btw database
+
+patients <- filter(mcic_cobre_HalluFinal, clinical_status==2)
+patients_mcic <- filter(patients, clinical_status==2, database=="mcic_share")
+patients_cobre <- filter(patients, clinical_status==2, database=="cobre")
+chisq_hallu <- chisq.test(table(patients$group_names, patients$database))
+chisq_hallu
+prop.table(table(patients_mcic$group_names))
+table(patients_mcic$group_names)
+prop.table(table(patients_cobre$group_names))
+table(patients_cobre$group_names)
+
+# difference in the proportion of prominent/present/absent pcs between groups
+# prop btw clinical grps /database
+controls <- filter(mcic_cobre, clinical_status==1)
+controls_mcic <- filter(mcic_cobre, clinical_status==1, database=="mcic_share")
+controls_cobre <- filter(mcic_cobre, clinical_status==1, database=="cobre")
+# Right PCS
+chisq.test(table(mcic_cobre$R_PCS, mcic_cobre$clinical_group)) #Chi2 R_PCS status (prominent/pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+chisq.test(table(mcic_cobre$R_PCS_PresAbs, mcic_cobre$clinical_group)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(patients_mcic$R_PCS))
+prop.table(table(patients_cobre$R_PCS))
+prop.table(table(controls_mcic$R_PCS))
+prop.table(table(controls_cobre$R_PCS))
+
+prop.table(table(patients_mcic$R_PCS_PresAbs))
+prop.table(table(patients_cobre$R_PCS_PresAbs))
+prop.table(table(controls_mcic$R_PCS_PresAbs))
+prop.table(table(controls_cobre$R_PCS_PresAbs))
+
+# Left PCS
+chisq.test(table(mcic_cobre$L_PCS, mcic_cobre$clinical_group)) #Chi2 L_PCS status (prominent/pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+chisq.test(table(mcic_cobre$L_PCS_PresAbs, mcic_cobre$clinical_group)) #Chi2 L_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(patients_mcic$L_PCS))
+prop.table(table(patients_cobre$L_PCS))
+prop.table(table(controls_mcic$L_PCS))
+prop.table(table(controls_cobre$L_PCS))
+
+prop.table(table(patients_mcic$L_PCS_PresAbs))
+prop.table(table(patients_cobre$L_PCS_PresAbs))
+prop.table(table(controls_mcic$L_PCS_PresAbs))
+prop.table(table(controls_cobre$L_PCS_PresAbs))
+
+chisq.test(table(mcic_cobre$PCS_class, mcic_cobre$clinical_group))
+prop.table(table(patients_mcic$PCS_class))
+prop.table(table(patients_cobre$PCS_class))
+prop.table(table(controls_mcic$PCS_class))
+prop.table(table(controls_cobre$PCS_class))
+
+# prop btw hallu status /database
+# Right PCS
+HPlus_mcic <- filter(mcic_cobre_HalluFinal, hallu_status=="mcic_H+")
+HMinus_mcic <- filter(mcic_cobre_HalluFinal, hallu_status=="mcic_H-")
+HPlus_cobre <- filter(mcic_cobre_HalluFinal, hallu_status=="cobre_H+")
+HMinus_cobre <- filter(mcic_cobre_HalluFinal, hallu_status=="cobre_H-")
+chisq.test(table(mcic_cobre_HalluFinal$R_PCS, mcic_cobre_HalluFinal$hallu_status)) #Chi2 R_PCS status (prominent/pres/abs) * hallu_status (H+(mcic/cobre)/H-(mcic/cobre)/HC(mcic/cobre))
+chisq.test(table(mcic_cobre_HalluFinal$R_PCS_PresAbs, mcic_cobre_HalluFinal$hallu_status)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(HPlus_mcic$R_PCS))
+prop.table(table(HMinus_mcic$R_PCS))
+prop.table(table(HPlus_cobre$R_PCS))
+prop.table(table(HMinus_cobre$R_PCS))
+prop.table(table(controls_mcic$R_PCS))
+prop.table(table(controls_cobre$R_PCS))
+
+prop.table(table(HPlus_mcic$R_PCS_PresAbs))
+prop.table(table(HMinus_mcic$R_PCS_PresAbs))
+prop.table(table(HPlus_cobre$R_PCS_PresAbs))
+prop.table(table(HMinus_cobre$R_PCS_PresAbs))
+prop.table(table(controls_mcic$R_PCS_PresAbs))
+prop.table(table(controls_cobre$R_PCS_PresAbs))
+
+# Left PCS
+chisq.test(table(mcic_cobre_HalluFinal$L_PCS, mcic_cobre_HalluFinal$hallu_status)) #Chi2 L_PCS status (prominent/pres/abs) * hallu_status (H+(mcic/cobre)/H-(mcic/cobre)/HC(mcic/cobre))
+chisq.test(table(mcic_cobre_HalluFinal$L_PCS_PresAbs, mcic_cobre_HalluFinal$clinical_group)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(HPlus_mcic$L_PCS))
+prop.table(table(HMinus_mcic$L_PCS))
+prop.table(table(HPlus_cobre$L_PCS))
+prop.table(table(HMinus_cobre$L_PCS))
+prop.table(table(controls_mcic$L_PCS))
+prop.table(table(controls_cobre$L_PCS))
+
+prop.table(table(HPlus_mcic$L_PCS_PresAbs))
+prop.table(table(HMinus_mcic$L_PCS_PresAbs))
+prop.table(table(HPlus_cobre$L_PCS_PresAbs))
+prop.table(table(HMinus_cobre$L_PCS_PresAbs))
+prop.table(table(controls_mcic$L_PCS_PresAbs))
+prop.table(table(controls_cobre$L_PCS_PresAbs))
+
+chisq.test(table(mcic_cobre_HalluFinal$PCS_class, mcic_cobre_HalluFinal$hallu_status))
+prop.table(table(HPlus_mcic$PCS_class))
+prop.table(table(HMinus_mcic$PCS_class))
+prop.table(table(HPlus_cobre$PCS_class))
+prop.table(table(HMinus_cobre$PCS_class))
+prop.table(table(controls_mcic$PCS_class))
+prop.table(table(controls_cobre$PCS_class))
+
+mcic_cobre %>% 
+group_by(clinical_status, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age, SAPS_hallucinations, SAPS_delusions, SAPS, SANS, P1, P3, PANSS_positive, PANSS_negative, PANSS_total, PANSS_general, L_PCSdepth, L_PCSlength, R_PCSdepth, R_PCSlength, L_STSdepth, L_STSlength, R_STSdepth, R_STSlength)
+
+mcic_cobre_HalluFinal %>% 
+group_by(hallu_status, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age, SAPS_hallucinations, SAPS_delusions, SAPS, SANS, P1, P3, PANSS_positive, PANSS_negative, PANSS_total, PANSS_general, L_PCSdepth, L_PCSlength, R_PCSdepth, R_PCSlength, L_STSdepth, L_STSlength, R_STSdepth, R_STSlength)
+```
+
+# descriptive statistics in MCIC
+```{r}
+mcic_final <- filter(mcic_cobre, database=="mcic_share")
+
+mcic_final <- mcic_final %>% # group the subjects by clinical status and database
+mutate(clinical_group = ifelse(clinical_status==2 & database=="mcic_share", "mcic_patient",
+                           ifelse(clinical_status==1 & database=="mcic_share", "mcic_control", "NA")))
+
+#filter the subjects with hallu_status different from "NA"
+mcic_HalluFinal <- filter(mcic_final, group!="NA")
+mcic_HalluFinal
+
+mcic_HalluFinal_exc_null <- mcic_HalluFinal
+mcic_HalluFinal_exc_null$L_PCSlength[mcic_HalluFinal_exc_null$L_PCSlength == 0] <- NA
+mcic_HalluFinal_exc_null$R_PCSlength[mcic_HalluFinal_exc_null$R_PCSlength == 0] <- NA
+mcic_HalluFinal_exc_null$L_PCSdepth[mcic_HalluFinal_exc_null$L_PCSdepth == 0] <- NA
+mcic_HalluFinal_exc_null$R_PCSdepth[mcic_HalluFinal_exc_null$R_PCSdepth == 0] <- NA
+
+mcic_HalluFinal <- mcic_HalluFinal %>% # group the subjects by hallucination status and database
+mutate(hallu_status = ifelse(group==1 & database=="mcic_share", "mcic_HC",
+                           ifelse(group==2 & database=="mcic_share", "mcic_H+",
+                           ifelse(group==3 & database=="mcic_share", "mcic_H-","NA"))))
+
+# group differences in age
+
+shapiro.test(mcic_final$age) #normality?
+
+hist(mcic_final$age,main='Age distribution in MCIC patients',xlab='Age') # age distribution in mcic patients
+hist(mcic_final$age[mcic_final$clinical_group=='mcic_control'],main='Age distribution in MCIC controls',xlab='Age') # age distribution in mcic controls
+
+kruskal.test(age~clinical_group, data=mcic_final) #age difference by clinical status and database (non-parametric)
+#pairwise.wilcox.test(mcic_final$age, mcic_final$clinical_group, p.adjust.method = "BH") #The Wilcox Test should be used if every group display the same distribution 
+kruskal.test(age~hallu_status, data=mcic_HalluFinal) #age difference by hallu status and database (non-parametric)
+#pairwise.wilcox.test(mcic_final$age, mcic_final$hallu_status, p.adjust.method = "BH")
+dunnTest(mcic_HalluFinal$age, mcic_HalluFinal$hallu_status, method = "bh") #Dunn Test is the most popular post-hoc test after Kruskal-Wallis, the p.adj adjusts the p-value for FDR (type I errors) using the bh procedure 
+
+
+mcic_final %>% 
+group_by(clinical_group, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age)
+
+mcic_HalluFinal %>% 
+group_by(hallu_status, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age)
+
+# group difference in sex
+
+chisq_sex_grp <- chisq.test(table(mcic_final$sex, mcic_final$clinical_group)) #difference in the sex proportion by clinical status and database
+chisq_sex_grp
+
+chisq_sex_hallu <- chisq.test(table(mcic_HalluFinal$sex, mcic_HalluFinal$hallu_status)) #difference in the sex proportion by clinical status and database
+chisq_sex_hallu
+
+
+# difference in the proportion of prominent/present/absent pcs between groups
+# prop btw clinical grps /database
+# Right PCS
+patients_mcic <- filter(mcic_final, clinical_status==2, database=="mcic_share")
+controls_mcic <- filter(mcic_final, clinical_status==1, database=="mcic_share")
+chisq.test(table(mcic_final$R_PCS, mcic_final$clinical_group)) #Chi2 R_PCS status (prominent/pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+chisq.test(table(mcic_final$R_PCS_PresAbs, mcic_final$clinical_group)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(patients_mcic$R_PCS))
+prop.table(table(controls_mcic$R_PCS))
+
+# Left PCS
+chisq.test(table(mcic_final$L_PCS, mcic_final$clinical_group)) #Chi2 L_PCS status (prominent/pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+chisq.test(table(mcic_final$L_PCS_PresAbs, mcic_final$clinical_group)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(patients_mcic$L_PCS))
+prop.table(table(controls_mcic$L_PCS))
+
+# prop btw hallu status /database
+# Right PCS
+HPlus_mcic <- filter(mcic_HalluFinal, hallu_status=="mcic_H+")
+HMinus_mcic <- filter(mcic_HalluFinal, hallu_status=="mcic_H-")
+chisq.test(table(mcic_HalluFinal$R_PCS, mcic_HalluFinal$hallu_status)) #Chi2 R_PCS status (pres/abs) * hallu_status (H+(mcic/cobre)/H-(mcic/cobre)/HC(mcic/cobre))
+chisq.test(table(mcic_HalluFinal$R_PCS_PresAbs, mcic_HalluFinal$hallu_status)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(HPlus_mcic$R_PCS))
+prop.table(table(HMinus_mcic$R_PCS))
+prop.table(table(controls_mcic$R_PCS))
+# Left PCS
+chisq.test(table(mcic_HalluFinal$L_PCS, mcic_HalluFinal$hallu_status)) #Chi2 L_PCS status (pres/abs) * hallu_status (H+(mcic/cobre)/H-(mcic/cobre)/HC(mcic/cobre))
+chisq.test(table(mcic_HalluFinal$L_PCS_PresAbs, mcic_HalluFinal$hallu_status)) #Chi2 R_PCS status (prominent+pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+prop.table(table(HPlus_mcic$L_PCS))
+prop.table(table(HMinus_mcic$L_PCS))
+prop.table(table(controls_mcic$L_PCS))
+
+chisq.test(table(mcic_final$PCS_class, mcic_final$clinical_group))
+prop.table(table(HPlus_mcic$PCS_class))
+prop.table(table(HMinus_mcic$PCS_class))
+prop.table(table(controls_mcic$PCS_class))
+
+chisq.test(table(mcic_HalluFinal$PCS_class, mcic_HalluFinal$hallu_status))
+prop.table(table(HPlus_mcic$PCS_class))
+prop.table(table(HMinus_mcic$PCS_class))
+prop.table(table(controls_mcic$PCS_class))
+
+mcic_final %>% 
+group_by(clinical_status) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age, SAPS_hallucinations, SAPS_delusions, SAPS, SANS, P1, P3, PANSS_positive, PANSS_negative, PANSS_total, PANSS_general, L_PCSdepth, L_PCSlength, R_PCSdepth, R_PCSlength, L_STSdepth, L_STSlength, R_STSdepth, R_STSlength)
+
+mcic_HalluFinal %>% 
+group_by(hallu_status) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age, SAPS_hallucinations, SAPS_delusions, SAPS, SANS, P1, P3, PANSS_positive, PANSS_negative, PANSS_total, PANSS_general, L_PCSdepth, L_PCSlength, R_PCSdepth, R_PCSlength, L_STSdepth, L_STSlength, R_STSdepth, R_STSlength)
+```
+
+# descriptive statistics in COBRE
+```{r}
+cobre_final <- filter(mcic_cobre, database=="cobre")
+
+cobre_final <- cobre_final %>% # group the subjects by clinical status and database
+mutate(clinical_group = ifelse(clinical_status==2 & database=="cobre", "cobre_patient",
+                           ifelse(clinical_status==1 & database=="cobre", "cobre_control", "NA")))
+
+#filter the subjects with hallu_status different from "NA"
+cobre_HalluFinal <- filter(cobre_final, group!="NA")
+cobre_HalluFinal
+
+cobre_HalluFinal_exc_null <- cobre_HalluFinal
+cobre_HalluFinal_exc_null$L_PCSlength[cobre_HalluFinal_exc_null$L_PCSlength == 0] <- NA
+cobre_HalluFinal_exc_null$R_PCSlength[cobre_HalluFinal_exc_null$R_PCSlength == 0] <- NA
+cobre_HalluFinal_exc_null$L_PCSdepth[cobre_HalluFinal_exc_null$L_PCSdepth == 0] <- NA
+cobre_HalluFinal_exc_null$R_PCSdepth[cobre_HalluFinal_exc_null$R_PCSdepth == 0] <- NA
+
+cobre_HalluFinal <- cobre_HalluFinal %>% # group the subjects by hallucination status and database
+mutate(hallu_status = ifelse(group==1 & database=="cobre", "cobre_HC",
+                           ifelse(group==2 & database=="cobre", "cobre_H+",
+                           ifelse(group==3 & database=="cobre", "cobre_H-","NA"))))
+
+# group differences in age
+
+shapiro.test(cobre_final$age) #normality?
+
+hist(cobre_final$age,main='Age distribution in MCIC patients',xlab='Age') # age distribution in mcic patients
+hist(cobre_final$age[cobre_final$clinical_group=='cobre_control'],main='Age distribution in MCIC controls',xlab='Age') # age distribution in mcic controls
+
+kruskal.test(age~clinical_group, data=cobre_final) #age difference by clinical status and database (non-parametric)
+#pairwise.wilcox.test(cobre_final$age, cobre_final$clinical_group, p.adjust.method = "BH") #The Wilcox Test should be used if every group display the same distribution 
+kruskal.test(age~hallu_status, data=cobre_HalluFinal) #age difference by hallu status and database (non-parametric)
+#pairwise.wilcox.test(cobre_final$age, cobre_final$hallu_status, p.adjust.method = "BH")
+
+cobre_final %>% 
+group_by(clinical_group, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age)
+
+cobre_HalluFinal %>% 
+group_by(hallu_status, database) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age)
+
+# group difference in sex
+
+chisq_sex_grp <- chisq.test(table(cobre_final$sex, cobre_final$clinical_group)) #difference in the sex proportion by clinical status and database
+chisq_sex_grp
+
+chisq_sex_hallu <- chisq.test(table(cobre_HalluFinal$sex, cobre_HalluFinal$hallu_status)) #difference in the sex proportion by clinical status and database
+chisq_sex_hallu
+
+
+# difference in the proportion of prominent/present/absent pcs between groups
+# prop btw clinical grps /database
+# Right PCS
+patients_cobre <- filter(cobre_final, clinical_status==2, database=="cobre")
+controls_cobre <- filter(cobre_final, clinical_status==1, database=="cobre")
+chisq.test(table(cobre_final$R_PCS, cobre_final$clinical_group)) #Chi2 R_PCS status (prominent/pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+chisq.test(table(cobre_final$R_PCS_PresAbs, cobre_final$clinical_group))
+prop.table(table(patients_cobre$R_PCS))
+prop.table(table(controls_cobre$R_PCS))
+
+prop.table(table(patients_cobre$R_PCS_PresAbs))
+prop.table(table(controls_cobre$R_PCS_PresAbs))
+
+# Left PCS
+chisq.test(table(cobre_final$L_PCS, cobre_final$clinical_group)) #Chi2 L_PCS status (prominent/pres/abs) * clinical_group (HC(mcic/cobre)/SZ(mcic/cobre))
+chisq.test(table(cobre_final$L_PCS_PresAbs, cobre_final$clinical_group))
+prop.table(table(patients_cobre$L_PCS))
+prop.table(table(controls_cobre$L_PCS))
+
+# prop btw hallu status /database
+# Right PCS
+HPlus_cobre <- filter(cobre_HalluFinal, hallu_status=="cobre_H+")
+HMinus_cobre <- filter(cobre_HalluFinal, hallu_status=="cobre_H-")
+chisq.test(table(cobre_HalluFinal$R_PCS, cobre_HalluFinal$hallu_status)) #Chi2 R_PCS status (pres/abs) * hallu_status (H+(mcic/cobre)/H-(mcic/cobre)/HC(mcic/cobre))
+chisq.test(table(cobre_HalluFinal$R_PCS_PresAbs, cobre_HalluFinal$hallu_status))
+prop.table(table(HPlus_cobre$R_PCS))
+prop.table(table(HMinus_cobre$R_PCS))
+prop.table(table(controls_cobre$R_PCS))
+# Left PCS
+chisq.test(table(cobre_HalluFinal$L_PCS, cobre_HalluFinal$hallu_status)) #Chi2 L_PCS status (pres/abs) * hallu_status (H+(mcic/cobre)/H-(mcic/cobre)/HC(mcic/cobre))
+chisq.test(table(cobre_HalluFinal$L_PCS_PresAbs, cobre_HalluFinal$hallu_status))
+prop.table(table(HPlus_cobre$L_PCS))
+prop.table(table(HMinus_cobre$L_PCS))
+prop.table(table(controls_cobre$L_PCS))
+
+chisq.test(table(cobre_final$PCS_class, cobre_final$clinical_group))
+prop.table(table(HPlus_cobre$PCS_class))
+prop.table(table(HMinus_cobre$PCS_class))
+prop.table(table(controls_cobre$PCS_class))
+
+chisq.test(table(cobre_HalluFinal$PCS_class, cobre_HalluFinal$hallu_status))
+prop.table(table(HPlus_cobre$PCS_class))
+prop.table(table(HMinus_cobre$PCS_class))
+prop.table(table(controls_cobre$PCS_class))
+
+cobre_final %>% 
+group_by(clinical_status) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age, SAPS_hallucinations, SAPS_delusions, SAPS, SANS, P1, P3, PANSS_positive, PANSS_negative, PANSS_total, PANSS_general, L_PCSdepth, L_PCSlength, R_PCSdepth, R_PCSlength, L_STSdepth, L_STSlength, R_STSdepth, R_STSlength)
+
+cobre_HalluFinal %>% 
+group_by(hallu_status) %>%
+summarise_each(funs(mean(., na.rm = TRUE)), age, SAPS_hallucinations, SAPS_delusions, SAPS, SANS, P1, P3, PANSS_positive, PANSS_negative, PANSS_total, PANSS_general, L_PCSdepth, L_PCSlength, R_PCSdepth, R_PCSlength, L_STSdepth, L_STSlength, R_STSdepth, R_STSlength)
+```
+
+#distribution of the lenghts and depths in patients + ctrls
+```{r}
+hist(mcic_cobre$L_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_PCSlength, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$R_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_PCSlength, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$L_STSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left STS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_STSlength, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$R_STSlength,
+     freq= FALSE,
+     xlab = "Left PCS length (mm)", ylab = "Density",
+     main = "Distribution of the right STS length",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_STSlength, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$L_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_PCSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$R_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_PCSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$L_STSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left STS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_STSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$R_STSdepth,
+     freq= FALSE,
+     xlab = "Left PCS depth (mm)", ylab = "Density",
+     main = "Distribution of the right STS depth",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_STSdepth, na.rm=TRUE), col="red")
+
+```
+
+#distribution of the lenghts and depths in patients
+```{r}
+patients_total <- filter(mcic_cobre, clinical_status==2)
+hist(patients_total$L_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_PCSlength, na.rm=TRUE), col="red")
+
+hist(patients_total$R_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_PCSlength, na.rm=TRUE), col="red")
+
+hist(patients_total$L_STSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left STS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_STSlength, na.rm=TRUE), col="red")
+
+hist(patients_total$R_STSlength,
+     freq= FALSE,
+     xlab = "Left PCS length (mm)", ylab = "Density",
+     main = "Distribution of the right STS length",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_STSlength, na.rm=TRUE), col="red")
+
+hist(patients_total$L_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_PCSdepth, na.rm=TRUE), col="red")
+
+hist(patients_total$R_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_PCSdepth, na.rm=TRUE), col="red")
+
+hist(patients_total$L_STSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left STS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_STSdepth, na.rm=TRUE), col="red")
+
+hist(patients_total$R_STSdepth,
+     freq= FALSE,
+     xlab = "Left PCS depth (mm)", ylab = "Density",
+     main = "Distribution of the right STS depth",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_STSdepth, na.rm=TRUE), col="red")
+```
+
+#distribution of the lengths and depths in controls
+```{r}
+ctrls_total <- filter(mcic_cobre, clinical_status==1)
+hist(ctrls_total$L_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_PCSlength, na.rm=TRUE), col="red")
+
+hist(ctrls_total$R_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_PCSlength, na.rm=TRUE), col="red")
+
+hist(ctrls_total$L_STSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left STS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_STSlength, na.rm=TRUE), col="red")
+
+hist(ctrls_total$R_STSlength,
+     freq= FALSE,
+     xlab = "Left PCS length (mm)", ylab = "Density",
+     main = "Distribution of the right STS length",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_STSlength, na.rm=TRUE), col="red")
+
+hist(ctrls_total$L_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_PCSdepth, na.rm=TRUE), col="red")
+
+hist(ctrls_total$R_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_PCSdepth, na.rm=TRUE), col="red")
+
+hist(ctrls_total$L_STSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left STS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$L_STSdepth, na.rm=TRUE), col="red")
+
+hist(ctrls_total$R_STSdepth,
+     freq= FALSE,
+     xlab = "Left PCS depth (mm)", ylab = "Density",
+     main = "Distribution of the right STS depth",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$R_STSdepth, na.rm=TRUE), col="red")
+```
+
+# linear models for paracingulate and superior temporal sulci (PCS, STS)
+# length and depth analyses by hemisphere
+
+# between 2 groups = schizophrenia patients vs. HC
+
+# plots
+# including the null values
+```{r}
+means <- mcic_cobre %>% #summarize the dataset
+  group_by(clinical_status_names) %>%
+  summarise_each(funs(mean(., na.rm=T), sd(., na.rm=T), se=sd(., na.rm=T)/sqrt(n())), 
+                 L_PCSlength, R_PCSlength, L_PCSdepth, R_PCSdepth, L_STSlength, R_STSlength, L_STSdepth, R_STSdepth)
+means
+```
+
+# plots
+# excluding the null values
+```{r}
+means_exc <- mcic_cobre_exc_null %>% #summarize the dataset
+  group_by(clinical_status_names) %>%
+  summarise_each(funs(mean(., na.rm=T), sd(., na.rm=T), se=sd(., na.rm=T)/sqrt(n())), 
+                 L_PCSlength, R_PCSlength, L_PCSdepth, R_PCSdepth, L_STSlength, R_STSlength, L_STSdepth, R_STSdepth)
+means_exc
+```
+
+#tests for mcic + cobre
+# pcs length
+# including the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+
+kruskal.test(L_PCSlength ~ clinical_status, data=mcic_cobre) # because the distribution of the PCS is not normal
+
+plot_L_PCSlength_status <- ggplot(means, aes(x=clinical_status_names, y=L_PCSlength_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSlength_mean-L_PCSlength_se, ymax=L_PCSlength_mean+L_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the left PCS", x="group", fill="group")
+plot_L_PCSlength_status
+
+model_pcs_length_rh <- lm(R_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+
+kruskal.test(R_PCSlength ~ clinical_status, data=mcic_cobre) # because the distribution of the PCS is not normal
+
+plot_R_PCSlength_status <- ggplot(means, aes(x=clinical_status_names, y=R_PCSlength_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSlength_mean-R_PCSlength_se, ymax=R_PCSlength_mean+R_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the right PCS", x="group", fill="group")
+plot_R_PCSlength_status
+
+model_pcs_length <- lm(PCS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_cobre_combine) #right side
+anova(model_pcs_length)
+emmeans(model_pcs_length, pairwise~clinical_status)
+emmeans(model_pcs_length, pairwise~Laterality)
+plot(model_pcs_length)
+```
+
+#tests for mcic + cobre
+# pcs length
+# excluding the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre_exc_null) #left side
+summary(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~clinical_status)
+plot(model_pcs_length_lh)
+
+kruskal.test(L_PCSlength ~ clinical_status, data=mcic_cobre_exc_null) # because the distribution of the PCS is not normal
+
+plot_L_PCSlength_status <- ggplot(means_exc, aes(x=clinical_status_names, y=L_PCSlength_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSlength_mean-L_PCSlength_se, ymax=L_PCSlength_mean+L_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the left PCS", x="group", fill="group")
+plot_L_PCSlength_status
+
+model_pcs_length_rh <- lm(R_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre_exc_null) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+
+kruskal.test(R_PCSlength ~ clinical_status, data=mcic_cobre_exc_null) # because the distribution of the PCS is not normal
+
+plot_R_PCSlength_status <- ggplot(means_exc, aes(x=clinical_status_names, y=R_PCSlength_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSlength_mean-R_PCSlength_se, ymax=R_PCSlength_mean+R_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the right PCS", x="group", fill="group")
+plot_R_PCSlength_status
+
+model_pcs_length <- lm(PCS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_cobre_exc_null_combine) #right side
+anova(model_pcs_length)
+emmeans(model_pcs_length, pairwise~clinical_status)
+emmeans(model_pcs_length, pairwise~Laterality)
+plot(model_pcs_length)
+```
+
+# pcs depth
+# including null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #left side
+summary(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~clinical_status)
+plot(model_pcs_depth_lh)
+
+kruskal.test(L_PCSdepth ~ clinical_status, data=mcic_cobre) # because the distribution of the PCS is not normal
+
+plot_L_PCSdepth_status <- ggplot(means, aes(x=clinical_status_names, y=L_PCSdepth_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSdepth_mean-L_PCSdepth_se, ymax=L_PCSdepth_mean+L_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the left PCS", x="group", fill="group")
+plot_L_PCSdepth_status
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+
+kruskal.test(R_PCSdepth ~ clinical_status, data=mcic_cobre) # because the distribution of the PCS is not normal
+
+plot_R_PCSdepth_status <- ggplot(means, aes(x=clinical_status_names, y=R_PCSdepth_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSdepth_mean-R_PCSdepth_se, ymax=R_PCSdepth_mean+R_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the right PCS", x="group", fill="group")
+plot_R_PCSdepth_status
+
+model_pcs_depth <- lm(PCS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_cobre_combine) #right side
+anova(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~clinical_status+ Laterality)
+plot(model_pcs_depth)
+```
+
+# pcs depth
+# excluding null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre_exc_null) #left side
+summary(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~clinical_status)
+plot(model_pcs_depth_lh)
+
+kruskal.test(L_PCSdepth ~ clinical_status, data=mcic_cobre_exc_null) # because the distribution of the PCS is not normal
+
+plot_L_PCSdepth_status <- ggplot(means, aes(x=clinical_status_names, y=L_PCSdepth_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSdepth_mean-L_PCSdepth_se, ymax=L_PCSdepth_mean+L_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the left PCS", x="group", fill="group")
+plot_L_PCSdepth_status
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre_exc_null) #right side
+summary(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~clinical_status)
+plot(model_pcs_depth_rh)
+
+kruskal.test(R_PCSdepth ~ clinical_status, data=mcic_cobre_exc_null) # because the distribution of the PCS is not normal
+
+plot_R_PCSdepth_status <- ggplot(means, aes(x=clinical_status_names, y=R_PCSdepth_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSdepth_mean-R_PCSdepth_se, ymax=R_PCSdepth_mean+R_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the right PCS", x="group", fill="group")
+plot_R_PCSdepth_status
+
+model_pcs_depth <- lm(PCS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_cobre_exc_null_combine) #right side
+anova(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~clinical_status)
+emmeans(model_pcs_depth, pairwise~Laterality)
+plot(model_pcs_depth)
+```
+
+# sts length
+```{r}
+model_sts_length_lh <- lm(L_STSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #left side
+summary(model_sts_length_lh)
+plot(model_sts_length_lh)
+
+plot_L_STSlength_status <- ggplot(means, aes(x=clinical_status_names, y=L_STSlength_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_STSlength_mean-L_STSlength_se, ymax=L_STSlength_mean+L_STSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the left STS", x="group", fill="group")
+plot_L_STSlength_status
+
+model_sts_length_rh <- lm(R_STSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #right side
+summary(model_sts_length_rh)
+plot(model_sts_length_rh)
+
+plot_R_STSlength_status <- ggplot(means, aes(x=clinical_status_names, y=R_STSlength_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_STSlength_mean-R_STSlength_se, ymax=R_STSlength_mean+R_STSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the right STS", x="group", fill="group")
+plot_R_STSlength_status
+
+model_sts_length <- lm(STS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_cobre_combine) #right side
+anova(model_sts_length)
+plot(model_sts_length)
+```
+
+# sts depth
+```{r}
+model_sts_depth_lh <- lm(L_STSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #left side
+summary(model_sts_depth_lh)
+plot(model_sts_depth_lh)
+
+plot_L_STSdepth_status <- ggplot(means, aes(x=clinical_status_names, y=L_STSdepth_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_STSdepth_mean-L_STSdepth_se, ymax=L_STSdepth_mean+L_STSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the left STS", x="group", fill="group")
+plot_L_STSdepth_status
+
+model_sts_depth_rh <- lm(R_STSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_cobre) #right side
+summary(model_sts_depth_rh)
+plot(model_sts_depth_rh)
+
+plot_R_STSdepth_status <- ggplot(means, aes(x=clinical_status_names, y=R_STSdepth_mean, fill=clinical_status_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_STSdepth_mean-R_STSdepth_se, ymax=R_STSdepth_mean+R_STSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the right STS", x="group", fill="group")
+plot_R_STSdepth_status
+
+model_sts_depth <- lm(STS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_cobre_combine) #right side
+anova(model_sts_depth)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~clinical_status+Laterality)
+```
+
+#tests in mcic only
+#filter the mcic database
+```{r}
+mcic_final <- filter(mcic_cobre, database=="mcic_share")
+mcic_final_exc <- filter(mcic_cobre_exc_null, database=="mcic_share")
+```
+
+```{r}
+hist(mcic_final$L_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$L_PCSlength, na.rm=TRUE), col="red")
+
+hist(mcic_final$R_PCSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$R_PCSlength, na.rm=TRUE), col="red")
+
+hist(mcic_final$L_STSlength,
+     freq= FALSE, 
+     xlab = "Left PCS length (mm)", ylab = "Density", 
+     main = "Distribution of the left STS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$L_STSlength, na.rm=TRUE), col="red")
+
+hist(mcic_final$R_STSlength,
+     freq= FALSE,
+     xlab = "Left PCS length (mm)", ylab = "Density",
+     main = "Distribution of the right STS length",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$R_STSlength, na.rm=TRUE), col="red")
+
+hist(mcic_final$L_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$L_PCSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_final$R_PCSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the right PCS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$R_PCSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_final$L_STSdepth,
+     freq= FALSE, 
+     xlab = "Left PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of the left STS depth", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$L_STSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_final$R_STSdepth,
+     freq= FALSE,
+     xlab = "Left PCS depth (mm)", ylab = "Density",
+     main = "Distribution of the right STS depth",
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_final$R_STSdepth, na.rm=TRUE), col="red")
+```
+
+# pcs length
+# including null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_final) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+
+kruskal.test(L_PCSlength ~ clinical_status, data=mcic_final) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_final) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+
+kruskal.test(R_PCSlength ~ clinical_status, data=mcic_final) # because the distribution of the PCS is not normal
+
+mcic_combine <- filter(mcic_cobre_combine, database=="mcic_share")
+mcic_combine
+
+model_pcs_length <- lm(PCS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_combine) 
+anova(model_pcs_length)
+emmeans(model_pcs_length, pairwise~clinical_status)
+emmeans(model_pcs_length, pairwise~Laterality)
+plot(model_pcs_length)
+```
+
+# pcs length
+# excluding null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_final_exc) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+
+kruskal.test(L_PCSlength ~ clinical_status, data=mcic_final_exc) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ clinical_status + site + age + sex + eTIV, data=mcic_final_exc) #right side
+summary(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~clinical_status)
+plot(model_pcs_length_rh)
+
+kruskal.test(R_PCSlength ~ clinical_status, data=mcic_final_exc) # because the distribution of the PCS is not normal
+
+mcic_exc_null_combine <- filter(mcic_cobre_exc_null_combine, database=="mcic_share")
+mcic_exc_null_combine
+
+model_pcs_length <- lm(PCS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_exc_null_combine) 
+anova(model_pcs_length)
+emmeans(model_pcs_length, pairwise~clinical_status)
+emmeans(model_pcs_length, pairwise~Laterality)
+plot(model_pcs_length)
+```
+
+# pcs depth
+# including the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_final) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+
+kruskal.test(L_PCSdepth ~ clinical_status, data=mcic_final) # because the distribution of the PCS is not normal
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_final) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+
+kruskal.test(R_PCSdepth ~ clinical_status, data=mcic_final) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_combine) 
+anova(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~clinical_status+Laterality)
+plot(model_pcs_depth)
+```
+
+# pcs depth
+# excluding the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_final_exc) #left side
+summary(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~clinical_status)
+plot(model_pcs_depth_lh)
+
+kruskal.test(L_PCSdepth ~ clinical_status, data=mcic_final_exc) # because the distribution of the PCS is not normal
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ clinical_status + site + age + sex + eTIV, data=mcic_final_exc) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+
+kruskal.test(R_PCSdepth ~ clinical_status, data=mcic_final_exc) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_exc_null_combine) 
+anova(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~clinical_status)
+emmeans(model_pcs_depth, pairwise~Laterality)
+plot(model_pcs_depth)
+```
+
+# sts length
+```{r}
+model_sts_length_lh <- lm(L_STSlength ~ clinical_status + age + sex + eTIV, data=mcic_final) #left side
+summary(model_sts_length_lh)
+plot(model_sts_length_lh)
+
+model_sts_length_rh <- lm(R_STSlength ~ clinical_status + age + sex + eTIV, data=mcic_final) #right side
+summary(model_sts_length_rh)
+plot(model_sts_length_rh)
+
+model_sts_length <- lm(STS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_combine) 
+anova(model_sts_length)
+plot(model_sts_length)
+emmeans(model_sts_length, pairwise~clinical_status+Laterality)
+```
+
+# sts depth
+```{r}
+model_sts_depth_lh <- lm(L_STSdepth ~ clinical_status + age + sex + eTIV, data=mcic_final) #left side
+summary(model_sts_depth_lh)
+plot(model_sts_depth_lh)
+
+model_sts_depth_rh <- lm(R_STSdepth ~ clinical_status + age + sex + eTIV, data=mcic_final) #right side
+summary(model_sts_depth_rh)
+plot(model_sts_depth_rh)
+
+model_sts_depth <- lm(STS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=mcic_combine) 
+anova(model_sts_depth)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~clinical_status+Laterality)
+```
+
+
+#tests in cobre only
+#filter the cobre database
+```{r}
+cobre_final <- filter(mcic_cobre, database=="cobre")
+cobre_final_exc <- filter(mcic_cobre_exc_null, database=="cobre")
+```
+
+# pcs length
+# including null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ clinical_status + age + sex + eTIV, data=cobre_final) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+
+kruskal.test(L_PCSlength ~ clinical_status, data=cobre_final) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ clinical_status + age + sex + eTIV, data=cobre_final) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+
+kruskal.test(R_PCSlength ~ clinical_status, data=cobre_final) # because the distribution of the PCS is not normal
+
+cobre_combine <- filter(mcic_cobre_combine, database=="cobre")
+cobre_combine
+
+model_pcs_length <- lm(PCS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=cobre_combine) 
+anova(model_pcs_length)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~Laterality)
+```
+
+# pcs length
+# excluding null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ clinical_status + age + sex + eTIV, data=cobre_final_exc) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+
+kruskal.test(L_PCSlength ~ clinical_status, data=cobre_final_exc) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ clinical_status + age + sex + eTIV, data=cobre_final_exc) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+
+kruskal.test(R_PCSlength ~ clinical_status, data=cobre_final_exc) # because the distribution of the PCS is not normal
+
+cobre_exc_null_combine <- filter(mcic_cobre_exc_null_combine, database=="cobre")
+cobre_exc_null_combine
+
+model_pcs_length <- lm(PCS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=cobre_exc_null_combine) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~Laterality)
+```
+
+# pcs depth
+# including the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ clinical_status + age + sex + eTIV, data=cobre_final) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+
+kruskal.test(L_PCSdepth ~ clinical_status, data=cobre_final) # because the distribution of the PCS is not normal
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ clinical_status + age + sex + eTIV, data=cobre_final) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+
+kruskal.test(R_PCSdepth ~ clinical_status, data=cobre_final) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=cobre_combine) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~clinical_status+Laterality)
+```
+
+# pcs depth
+# excluding the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ clinical_status + age + sex + eTIV, data=cobre_final_exc) #left side
+summary(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~clinical_status)
+plot(model_pcs_depth_lh)
+
+kruskal.test(L_PCSdepth ~ clinical_status, data=cobre_final_exc) # because the distribution of the PCS is not normal
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ clinical_status + age + sex + eTIV, data=cobre_final_exc) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+
+kruskal.test(R_PCSdepth ~ clinical_status, data=cobre_final_exc) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=cobre_exc_null_combine) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~clinical_status)
+emmeans(model_pcs_depth, pairwise~Laterality)
+```
+
+# sts length
+```{r}
+model_sts_length_lh <- lm(L_STSlength ~ clinical_status + age + sex + eTIV, data=cobre_final) #left side
+summary(model_sts_length_lh)
+plot(model_sts_length_lh)
+
+model_sts_length_rh <- lm(R_STSlength ~ clinical_status + age + sex + eTIV, data=cobre_final) #right side
+summary(model_sts_length_rh)
+plot(model_sts_length_rh)
+
+model_sts_length <- lm(STS_length ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=cobre_combine) 
+anova(model_sts_length)
+plot(model_sts_length)
+emmeans(model_sts_length, pairwise~clinical_status+Laterality)
+```
+
+# sts depth
+```{r}
+model_sts_depth_lh <- lm(L_STSdepth ~ clinical_status + age + sex + eTIV, data=cobre_final) #left side
+summary(model_sts_depth_lh)
+plot(model_sts_depth_lh)
+
+model_sts_depth_rh <- lm(R_STSdepth ~ clinical_status + age + sex + eTIV, data=cobre_final) #right side
+summary(model_sts_depth_rh)
+plot(model_sts_depth_rh)
+
+model_sts_depth <- lm(STS_depth ~ clinical_status + Laterality + site + age + sex + eTIV + clinical_status:Laterality, data=cobre_combine) 
+anova(model_sts_depth)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~clinical_status+Laterality)
+```
+
+
+
+#between 3 groups =  SZ with hallucinations vs. SZ without hallucinations vs. HC
+
+#plots
+#including the null values
+```{r}
+means_hallu <- mcic_cobre_HalluFinal %>% #summarize the dataset
+  group_by(group_names) %>%
+  summarise_each(funs(mean(., na.rm=T), sd(., na.rm=T), se=sd(., na.rm=T)/sqrt(n())), 
+                 L_PCSlength, R_PCSlength, L_PCSdepth, R_PCSdepth, L_STSlength, R_STSlength, L_STSdepth, R_STSdepth)
+means_hallu
+```
+
+#plots
+#excluding the null values
+```{r}
+means_hallu_exc <- mcic_cobre_HalluFinal_exc_null %>% #summarize the dataset
+  group_by(group_names) %>%
+  summarise_each(funs(mean(., na.rm=T), sd(., na.rm=T), se=sd(., na.rm=T)/sqrt(n())), 
+                 L_PCSlength, R_PCSlength, L_PCSdepth, R_PCSdepth, L_STSlength, R_STSlength, L_STSdepth, R_STSdepth)
+means_hallu_exc
+```
+
+# pcs length
+# including the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~group)
+
+kruskal.test(L_PCSlength ~ group, data=mcic_cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+plot_L_PCSlength_group <- ggplot(means_hallu, aes(x=group_names, y=L_PCSlength_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSlength_mean-L_PCSlength_se, ymax=L_PCSlength_mean+L_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the left PCS", x="group", fill="group")
+plot_L_PCSlength_group
+
+model_pcs_length_rh <- lm(R_PCSlength ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~group)
+
+kruskal.test(R_PCSlength ~ group, data=mcic_cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+plot_R_PCSlength_group <- ggplot(means_hallu, aes(x=group_names, y=R_PCSlength_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSlength_mean-R_PCSlength_se, ymax=R_PCSlength_mean+R_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the right PCS", x="group", fill="group")
+plot_R_PCSlength_group
+
+#filter the subjects with hallu_status different from "NA"
+mcic_cobre_exc_null_combine_HalluFinal <- filter(mcic_cobre_exc_null_combine, group!="NA")
+mcic_cobre_exc_null_combine_HalluFinal
+
+model_pcs_length <- lm(PCS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_cobre_exc_null_combine_HalluFinal) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~group_names)
+emmeans(model_pcs_length, pairwise~Laterality)
+```
+
+# pcs length
+# excluding the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal_exc_null) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~group)
+
+kruskal.test(L_PCSlength ~ group, data=mcic_cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+plot_L_PCSlength_group <- ggplot(means_hallu, aes(x=group_names, y=L_PCSlength_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSlength_mean-L_PCSlength_se, ymax=L_PCSlength_mean+L_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the left PCS", x="group", fill="group")
+plot_L_PCSlength_group
+
+model_pcs_length_rh <- lm(R_PCSlength ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal_exc_null) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~group)
+
+kruskal.test(R_PCSlength ~ group, data=mcic_cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+plot_R_PCSlength_group <- ggplot(means_hallu, aes(x=group_names, y=R_PCSlength_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSlength_mean-R_PCSlength_se, ymax=R_PCSlength_mean+R_PCSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the right PCS", x="group", fill="group")
+plot_R_PCSlength_group
+
+#filter the subjects with hallu_status different from "NA"
+mcic_cobre_combine_HalluFinal <- filter(mcic_cobre_combine, group!="NA")
+mcic_cobre_combine_HalluFinal
+
+model_pcs_length <- lm(PCS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_cobre_combine_HalluFinal) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~group_names)
+emmeans(model_pcs_length, pairwise~Laterality)
+```
+
+# pcs depth
+# including the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~group)
+
+kruskal.test(L_PCSdepth ~ group_names, data=mcic_cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+plot_L_PCSdepth_group <- ggplot(means_hallu, aes(x=group_names, y=L_PCSdepth_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSdepth_mean-L_PCSdepth_se, ymax=L_PCSdepth_mean+L_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the left PCS", x="group", fill="group")
+plot_L_PCSdepth_group
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~group)
+
+kruskal.test(R_PCSdepth ~ group, data=mcic_cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+plot_R_PCSdepth_group <- ggplot(means_hallu, aes(x=group_names, y=R_PCSdepth_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSdepth_mean-R_PCSdepth_se, ymax=R_PCSdepth_mean+R_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the right PCS", x="group", fill="group")
+plot_R_PCSdepth_group
+
+mcic_cobre_combine_HalluFinal_exc_null <- mcic_cobre_combine_HalluFinal
+mcic_cobre_combine_HalluFinal_exc_null$PCS_length[mcic_cobre_combine_HalluFinal_exc_null$PCS_length == 0] <- NA
+mcic_cobre_combine_HalluFinal_exc_null$PCS_depth[mcic_cobre_combine_HalluFinal_exc_null$PCS_depth == 0] <- NA
+
+model_pcs_depth <- lm(PCS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_cobre_combine_HalluFinal_exc_null) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~group_names)
+emmeans(model_pcs_depth, pairwise~Laterality)
+```
+
+# pcs depth
+# excluding the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal_exc_null) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~group)
+
+kruskal.test(L_PCSdepth ~ group_names, data=mcic_cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+plot_L_PCSdepth_group <- ggplot(means_hallu, aes(x=group_names, y=L_PCSdepth_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_PCSdepth_mean-L_PCSdepth_se, ymax=L_PCSdepth_mean+L_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the left PCS", x="group", fill="group")
+plot_L_PCSdepth_group
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal_exc_null) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~group)
+
+kruskal.test(R_PCSdepth ~ group, data=mcic_cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+plot_R_PCSdepth_group <- ggplot(means_hallu, aes(x=group_names, y=R_PCSdepth_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_PCSdepth_mean-R_PCSdepth_se, ymax=R_PCSdepth_mean+R_PCSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the right PCS", x="group", fill="group")
+plot_R_PCSdepth_group
+
+model_pcs_depth <- lm(PCS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_cobre_combine_HalluFinal) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~group_names+Laterality)
+```
+
+# sts length
+```{r}
+model_sts_length_lh <- lm(L_STSlength ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #left side
+summary(model_sts_length_lh)
+plot(model_sts_length_lh)
+emmeans(model_sts_length_lh, pairwise~group)
+
+plot_L_STSlength_group <- ggplot(means, aes(x=group_names, y=L_STSlength_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_STSlength_mean-L_STSlength_se, ymax=L_STSlength_mean+L_STSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the left STS", x="group", fill="group")
+plot_L_STSlength_group
+
+model_sts_length_rh <- lm(R_STSlength ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #right side
+summary(model_sts_length_rh)
+plot(model_sts_length_rh)
+emmeans(model_sts_length_rh, pairwise~group)
+
+plot_R_STSlength_group <- ggplot(means, aes(x=group_names, y=R_STSlength_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_STSlength_mean-R_STSlength_se, ymax=R_STSlength_mean+R_STSlength_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="length of the right STS", x="group", fill="group")
+plot_R_STSlength_group
+
+model_sts_length <- lm(STS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_cobre_combine_HalluFinal) 
+anova(model_sts_length)
+plot(model_sts_length)
+emmeans(model_sts_length, pairwise~Laterality)
+```
+
+# sts depth
+```{r}
+model_sts_depth_lh <- lm(L_STSdepth ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #left side
+summary(model_sts_depth_lh)
+plot(model_sts_depth_lh)
+emmeans(model_sts_depth_lh, pairwise~group)
+
+plot_L_STSdepth_group <- ggplot(means, aes(x=group_names, y=L_STSdepth_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=L_STSdepth_mean-L_STSdepth_se, ymax=L_STSdepth_mean+L_STSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the left STS", x="group", fill="group")
+plot_L_STSdepth_group
+
+model_sts_depth_rh <- lm(R_STSdepth ~ group + site + age + sex + eTIV, data=mcic_cobre_HalluFinal) #right side
+summary(model_sts_depth_rh)
+plot(model_sts_depth_rh)
+emmeans(model_sts_depth_rh, pairwise~group)
+
+plot_R_STSdepth_group <- ggplot(means, aes(x=group_names, y=R_STSdepth_mean, fill=group_names))+
+  geom_bar(stat="identity") +
+  geom_errorbar(aes(ymin=R_STSdepth_mean-R_STSdepth_se, ymax=R_STSdepth_mean+R_STSdepth_se), width=.2,
+                position=position_dodge(.9)) +
+  labs(y="depth of the right STS", x="group", fill="group")
+plot_R_STSdepth_group
+
+model_sts_depth <- lm(STS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_cobre_combine_HalluFinal) 
+anova(model_sts_depth)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~group_names)
+```
+
+#tests in mcic only
+
+# pcs length
+# including the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~group)
+
+kruskal.test(L_PCSlength ~ group, data=mcic_HalluFinal) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~group)
+
+kruskal.test(R_PCSlength ~ group, data=mcic_HalluFinal) # because the distribution of the PCS is not normal
+
+mcic_combine_HalluFinal <- filter(mcic_cobre_combine_HalluFinal, database=="mcic_share")
+mcic_combine_HalluFinal
+
+model_pcs_length <- lm(PCS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_combine_HalluFinal) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~Laterality)
+```
+
+# pcs length
+# excluding the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ group + site + age + sex + eTIV, data=mcic_HalluFinal_exc_null) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~group)
+
+kruskal.test(L_PCSlength ~ group, data=mcic_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ group + site + age + sex + eTIV, data=mcic_HalluFinal_exc_null) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~group)
+
+kruskal.test(R_PCSlength ~ group, data=mcic_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+mcic_combine_HalluFinal_exc_null <- mcic_combine_HalluFinal
+mcic_combine_HalluFinal_exc_null$PCS_length[mcic_combine_HalluFinal_exc_null$PCS_length == 0] <- NA
+mcic_combine_HalluFinal_exc_null$PCS_depth[mcic_combine_HalluFinal_exc_null$PCS_depth == 0] <- NA
+
+model_pcs_length <- lm(PCS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_combine_HalluFinal_exc_null) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~Laterality)
+emmeans(model_pcs_length, pairwise~group_names)
+```
+
+# pcs depth
+# including the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~group)
+
+kruskal.test(L_PCSdepth ~ group, data=mcic_HalluFinal) # because the distribution of the PCS is not normal
+dunnTest(L_PCSdepth ~ group, data=mcic_HalluFinal, method="bh")
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~group)
+
+kruskal.test(R_PCSdepth ~ group, data=mcic_HalluFinal) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_combine_HalluFinal) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~group_names)
+emmeans(model_pcs_depth, pairwise~Laterality)
+```
+
+# pcs depth
+# excluding the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_HalluFinal_exc_null) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~group)
+
+kruskal.test(L_PCSdepth ~ group, data=mcic_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+dunnTest(L_PCSdepth ~ group, data=mcic_HalluFinal_exc_null, method="bh")
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ group + site + age + sex + eTIV, data=mcic_HalluFinal_exc_null) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~group)
+
+kruskal.test(R_PCSdepth ~ group, data=mcic_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_combine_HalluFinal_exc_nullmcic_combine_HalluFinal_exc_null) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~Laterality)
+emmeans(model_pcs_depth, pairwise~group_names)
+```
+
+# sts length
+```{r}
+model_sts_length_lh <- lm(L_STSlength ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #left side
+summary(model_sts_length_lh)
+plot(model_sts_length_lh)
+emmeans(model_sts_length_lh, pairwise~group)
+
+model_sts_length_rh <- lm(R_STSlength ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #right side
+summary(model_sts_length_rh)
+plot(model_sts_length_rh)
+emmeans(model_sts_length_rh, pairwise~group)
+
+model_sts_length <- lm(STS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_combine_HalluFinal) 
+anova(model_sts_length)
+plot(model_sts_length)
+emmeans(model_sts_length, pairwise~group_names*Laterality)
+```
+
+# sts depth
+```{r}
+model_sts_depth_lh <- lm(L_STSdepth ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #left side
+summary(model_sts_depth_lh)
+plot(model_sts_depth_lh)
+emmeans(model_sts_depth_lh, pairwise~group)
+
+model_sts_depth_rh <- lm(R_STSdepth ~ group + site + age + sex + eTIV, data=mcic_HalluFinal) #right side
+summary(model_sts_depth_rh)
+plot(model_sts_depth_rh)
+emmeans(model_sts_depth_rh, pairwise~group)
+
+model_sts_depth <- lm(STS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=mcic_combine_HalluFinal) 
+anova(model_sts_depth)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~group_names)
+```
+
+#tests in cobre only
+
+# pcs length
+# including the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~group)
+
+kruskal.test(L_PCSlength ~ group, data=cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~group)
+
+kruskal.test(R_PCSlength ~ group, data=cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+cobre_combine_HalluFinal <- filter(mcic_cobre_combine_HalluFinal, database=="cobre")
+cobre_combine_HalluFinal
+
+model_pcs_length <- lm(PCS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=cobre_combine_HalluFinal) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~Laterality)
+```
+
+# pcs length
+# excluding the null values
+```{r}
+model_pcs_length_lh <- lm(L_PCSlength ~ group + site + age + sex + eTIV, data=cobre_HalluFinal_exc_null) #left side
+summary(model_pcs_length_lh)
+plot(model_pcs_length_lh)
+emmeans(model_pcs_length_lh, pairwise~group)
+
+kruskal.test(L_PCSlength ~ group, data=cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+model_pcs_length_rh <- lm(R_PCSlength ~ group + site + age + sex + eTIV, data=cobre_HalluFinal_exc_null) #right side
+summary(model_pcs_length_rh)
+plot(model_pcs_length_rh)
+emmeans(model_pcs_length_rh, pairwise~group)
+
+kruskal.test(R_PCSlength ~ group, data=cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+cobre_combine_HalluFinal_exc_null <- cobre_combine_HalluFinal
+cobre_combine_HalluFinal_exc_null$PCS_length[cobre_combine_HalluFinal_exc_null$PCS_length == 0] <- NA
+cobre_combine_HalluFinal_exc_null$PCS_depth[cobre_combine_HalluFinal_exc_null$PCS_depth == 0] <- NA
+
+model_pcs_length <- lm(PCS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=cobre_combine_HalluFinal_exc_null) 
+anova(model_pcs_length)
+plot(model_pcs_length)
+emmeans(model_pcs_length, pairwise~Laterality)
+```
+
+# pcs depth
+# including the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~group)
+
+kruskal.test(L_PCSdepth ~ group, data=cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~group)
+
+kruskal.test(R_PCSdepth ~ group, data=cobre_HalluFinal) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=cobre_combine_HalluFinal) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~group_names)
+```
+
+# pcs depth
+# excluding the null values
+```{r}
+model_pcs_depth_lh <- lm(L_PCSdepth ~ group + site + age + sex + eTIV, data=cobre_HalluFinal_exc_null) #left side
+summary(model_pcs_depth_lh)
+plot(model_pcs_depth_lh)
+emmeans(model_pcs_depth_lh, pairwise~group)
+
+kruskal.test(L_PCSdepth ~ group, data=cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+model_pcs_depth_rh <- lm(R_PCSdepth ~ group + site + age + sex + eTIV, data=cobre_HalluFinal_exc_null) #right side
+summary(model_pcs_depth_rh)
+plot(model_pcs_depth_rh)
+emmeans(model_pcs_depth_rh, pairwise~group)
+
+kruskal.test(R_PCSdepth ~ group, data=cobre_HalluFinal_exc_null) # because the distribution of the PCS is not normal
+
+model_pcs_depth <- lm(PCS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=cobre_combine_HalluFinal_exc_null) 
+anova(model_pcs_depth)
+plot(model_pcs_depth)
+emmeans(model_pcs_depth, pairwise~group_names)
+emmeans(model_pcs_depth, pairwise~Laterality)
+```
+
+# sts length
+```{r}
+model_sts_length_lh <- lm(L_STSlength ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #left side
+summary(model_sts_length_lh)
+plot(model_sts_length_lh)
+emmeans(model_sts_length_lh, pairwise~group)
+
+model_sts_length_rh <- lm(R_STSlength ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #right side
+summary(model_sts_length_rh)
+plot(model_sts_length_rh)
+emmeans(model_sts_length_rh, pairwise~group)
+
+model_sts_length <- lm(STS_length ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=cobre_combine_HalluFinal) 
+anova(model_sts_length)
+plot(model_sts_length)
+emmeans(model_sts_length, pairwise~group_names)
+```
+
+# sts depth
+```{r}
+model_sts_depth_lh <- lm(L_STSdepth ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #left side
+summary(model_sts_depth_lh)
+plot(model_sts_depth_lh)
+emmeans(model_sts_depth_lh, pairwise~group)
+
+model_sts_depth_rh <- lm(R_STSdepth ~ group + site + age + sex + eTIV, data=cobre_HalluFinal) #right side
+summary(model_sts_depth_rh)
+plot(model_sts_depth_rh)
+emmeans(model_sts_depth_rh, pairwise~group)
+
+model_sts_depth <- lm(STS_depth ~ group_names + Laterality + site + age + sex + eTIV + group_names:Laterality, data=cobre_combine_HalluFinal) 
+anova(model_sts_depth)
+plot(model_sts_depth)
+emmeans(model_sts_depth, pairwise~group_names)
+```
+
+
+# correlations between sulci measures and symptoms
+# length and depth analyses by hemisphere
+
+#mcic
+# pcs length
+```{r}
+# L_PCS length
+mcic_L_PCSlength <- filter(mcic_HalluFinal, L_PCSlength!=0)
+
+mcic_correl_hallu <- filter(mcic_L_PCSlength, group_names=="H+")
+mcic_correl_hallu
+cor1 <- cor.test(mcic_correl_hallu$L_PCSlength, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") 
+cor1
+cor_plot1 <- ggplot(mcic_correl_hallu, aes(x=mcic_correl_hallu$L_PCSlength, y=mcic_correl_hallu$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "right of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot1
+
+mcic_correl_delu <- filter(mcic_L_PCSlength, SAPS_delusions>1)
+cor2 <- cor.test(mcic_correl_delu$L_PCSlength, mcic_correl_delu$SAPS_delusions, use="complete.obs", method="pearson")
+cor2
+cor_plot2 <- ggplot(mcic_correl_delu, aes(x=mcic_correl_delu$L_PCSlength, y=mcic_correl_delu$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and delusions severity") +
+  labs(y="delusions", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot2
+
+cor3 <- cor.test(mcic_L_PCSlength$L_PCSlength, mcic_L_PCSlength$SAPS, use="complete.obs", method="pearson")
+cor3
+cor_plot3 <- ggplot(mcic_L_PCSlength, aes(x=mcic_L_PCSlength$L_PCSlength, y=mcic_L_PCSlength$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and SAPS scores") +
+  labs(y="SAPS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot3
+
+cor4 <- cor.test(mcic_L_PCSlength$L_PCSlength, mcic_L_PCSlength$SANS, use="complete.obs", method="pearson")
+cor4
+cor_plot4 <- ggplot(mcic_L_PCSlength, aes(x=mcic_L_PCSlength$L_PCSlength, y=mcic_L_PCSlength$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and SANS scores") +
+  labs(y="SANS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot4
+
+# R_PCS length
+mcic_R_PCSlength <- filter(mcic_HalluFinal, R_PCSlength!=0)
+
+mcic_correl_hallu <- filter(mcic_R_PCSlength, group_names=="H+")
+mcic_correl_hallu
+cor5 <- cor.test(mcic_correl_hallu$R_PCSlength, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") 
+cor5
+cor_plot5 <- ggplot(mcic_R_PCSlength, aes(x=mcic_R_PCSlength$R_PCSlength, y=mcic_R_PCSlength$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "right of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot5
+
+mcic_correl_delu <- filter(mcic_R_PCSlength, SAPS_delusions>1)
+cor6 <- cor.test(mcic_R_PCSlength$R_PCSlength, mcic_R_PCSlength$SAPS_delusions, use="complete.obs", method="pearson")
+cor6
+cor_plot6 <- ggplot(mcic_R_PCSlength, aes(x=mcic_R_PCSlength$R_PCSlength, y=mcic_R_PCSlength$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and delusions severity") +
+  labs(y="delusions", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot6
+
+cor7 <- cor.test(mcic_R_PCSlength$R_PCSlength, mcic_R_PCSlength$SAPS, use="complete.obs", method="pearson")
+cor7
+cor_plot7 <- ggplot(mcic_R_PCSlength, aes(x=mcic_R_PCSlength$R_PCSlength, y=mcic_R_PCSlength$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and SAPS scores") +
+  labs(y="SAPS", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot7
+
+cor8 <- cor.test(mcic_R_PCSlength$R_PCSlength, mcic_R_PCSlength$SANS, use="complete.obs", method="pearson")
+cor8
+cor_plot8 <- ggplot(mcic_R_PCSlength, aes(x=mcic_R_PCSlength$R_PCSlength, y=mcic_R_PCSlength$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and SANS scores") +
+  labs(y="SANS", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8
+```
+
+
+# pcs depth
+```{r}
+mcic_L_PCSdepth <- filter(mcic_HalluFinal, L_PCSdepth!=0)
+
+mcic_correl_hallu <- filter(mcic_L_PCSdepth, group_names=="H+")
+mcic_correl_hallu
+cor9 <- cor.test(mcic_correl_hallu$L_PCSdepth, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") #left side
+cor9
+cor_plot9 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot9
+     
+mcic_correl_delu <- filter(mcic_L_PCSdepth, SAPS_delusions>1)
+cor10 <- cor.test(mcic_correl_delu$L_PCSdepth, mcic_correl_delu$SAPS_delusions, use="complete.obs", method="pearson")
+cor10
+cor_plot10 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot10
+     
+cor11 <- cor.test(mcic_L_PCSdepth$L_PCSdepth, mcic_L_PCSdepth$SAPS, use="complete.obs", method="pearson")
+cor11
+cor_plot11 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and SAPS scores") +
+  labs(y="SAPS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot11
+     
+cor12 <- cor.test(mcic_L_PCSdepth$L_PCSdepth, mcic_L_PCSdepth$SANS, use="complete.obs", method="pearson")
+cor12
+cor_plot11 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and SANS scores") +
+  labs(y="SANS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot11
+
+mcic_R_PCSdepth <- filter(mcic_HalluFinal, R_PCSdepth!=0)
+
+mcic_correl_hallu <- filter(mcic_R_PCSdepth, group_names=="H+")
+mcic_correl_hallu
+cor13 <- cor.test(mcic_correl_hallu$R_PCSdepth, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") #right side
+cor13
+cor_plot13 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot13
+
+mcic_correl_delu <- filter(mcic_R_PCSdepth, SAPS_delusions>1)
+cor14 <- cor.test(mcic_correl_delu$R_PCSdepth, mcic_correl_delu$SAPS_delusions, use="complete.obs", method="pearson")
+cor14
+cor_plot14 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot14
+     
+cor15 <- cor.test(mcic_R_PCSdepth$R_PCSdepth, mcic_R_PCSdepth$SAPS, use="complete.obs", method="pearson")
+cor15
+cor_plot15 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and SAPS scores") +
+  labs(y="SAPS", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot15
+     
+cor16 <- cor.test(mcic_R_PCSdepth$R_PCSdepth, mcic_R_PCSdepth$SANS, use="complete.obs", method="pearson")
+cor16
+cor_plot16 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and SANS scores") +
+  labs(y="SANS", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot16
+```
+
+# sts length
+```{r}
+mcic_L_STSdepth <- filter(mcic_HalluFinal, L_STSdepth!=0)
+
+mcic_correl_hallu <- filter(mcic_L_STSdepth, group_names=="H+")
+mcic_correl_hallu
+cor17 <- cor.test(mcic_correl_hallu$L_STSlength, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") #left side
+cor17
+cor_plot17 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot17
+
+mcic_correl_delu <- filter(mcic_L_STSdepth, SAPS_delusions>1)
+cor18 <- cor.test(patients$L_STSlength, patients$SAPS_delusions, use="complete.obs", method="pearson")
+cor18
+cor_plot18 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and delusions severity") +
+  labs(y="delusions", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot18
+
+cor19 <- cor.test(mcic_L_STSdepth$L_STSlength, mcic_L_STSdepth$SAPS, use="complete.obs", method="pearson")
+cor19
+cor_plot19 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and SAPS scores") +
+  labs(y="SAPS", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot19
+
+cor20 <- cor.test(mcic_L_STSdepth$L_STSlength, mcic_L_STSdepth$SANS, use="complete.obs", method="pearson")
+cor20
+cor_plot20 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and SANS scores") +
+  labs(y="SANS", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot20
+
+cor21 <- cor.test(patients$R_STSlength, patients$SAPS_hallucinations, use="complete.obs", method="pearson") #right side
+cor21
+cor_plot21 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "right of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot21
+
+cor22 <- cor.test(patients$R_STSlength, patients$SAPS_delusions, use="complete.obs", method="pearson")
+cor22
+cor_plot22 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and delusions severity") +
+  labs(y="delusions", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot22
+
+cor23 <- cor.test(patients$R_STSlength, patients$SAPS, use="complete.obs", method="pearson")
+cor23
+cor_plot23 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and SAPS scores") +
+  labs(y="SAPS", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot23
+
+cor24 <- cor.test(patients$R_STSlength, patients$SANS, use="complete.obs", method="pearson")
+cor24
+cor_plot24 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and SANS scores") +
+  labs(y="SANS", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot24
+```
+
+# sts depth
+```{r}
+mcic_L_STSdepth <- filter(mcic_HalluFinal, L_STSdepth!=0)
+
+mcic_correl_hallu <- filter(mcic_L_STSdepth, group_names=="H+")
+mcic_correl_hallu
+cor25 <- cor.test(mcic_correl_hallu$L_PCSdepth, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") #left side
+cor25
+cor_plot25 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot25
+
+mcic_correl_delu <- filter(mcic_L_STSdepth, SAPS_delusions>1)
+cor26 <- cor.test(mcic_correl_delu$L_STSdepth, mcic_correl_delu$SAPS_delusions, use="complete.obs", method="pearson")
+cor26
+cor_plot26 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot26
+
+cor27 <- cor.test(mcic_L_STSdepth$L_STSdepth, mcic_L_STSdepth$SAPS, use="complete.obs", method="pearson")
+cor27
+cor_plot27 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and SAPS scores") +
+  labs(y="SAPS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot27
+     
+cor28 <- cor.test(mcic_L_STSdepth$L_STSdepth, mcic_L_STSdepth$SANS, use="complete.obs", method="pearson")
+cor28
+cor_plot28 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and SANS scores") +
+  labs(y="SANS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8
+
+mcic_R_STSdepth <- filter(mcic_HalluFinal, R_STSdepth!=0)
+
+mcic_correl_hallu <- filter(mcic_R_STSdepth, group_names=="H+")
+mcic_correl_hallu
+
+cor29 <- cor.test(mcic_correl_hallu$R_PCSdepth, mcic_correl_hallu$SAPS_hallucinations, use="complete.obs", method="pearson") #right side
+cor29
+cor_plot29 <- ggplot(patients, aes(x=patients$R_STSdepth, y=patients$SAPS_hallucinations)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot29
+
+mcic_correl_delu <- filter(mcic_R_STSdepth, SAPS_delusions>1)
+cor30 <- cor.test(mcic_correl_delu$R_STSdepth, mcic_correl_delu$SAPS_delusions, use="complete.obs", method="pearson")
+cor30
+cor_plot30 <- ggplot(patients, aes(x=patients$R_STSdepth, y=patients$SAPS_delusions)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS depth and delusions severity") +
+  labs(y="delusions", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot30
+     
+cor31 <- cor.test(mcic_R_STSdepth$R_STSdepth, mcic_R_STSdepth$SAPS, use="complete.obs", method="pearson")
+cor31
+cor_plot31 <- ggplot(patients, aes(x=patients$R_STSdepth, y=patients$SAPS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS depth and SAPS scores") +
+  labs(y="SAPS", x = "depth of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot31
+     
+cor32 <- cor.test(mcic_R_STSdepth$R_STSdepth, mcic_R_STSdepth$SANS, use="complete.obs", method="pearson")
+cor32
+cor_plot32 <- ggplot(patients, aes(x=patients$R_STSdepth, y=patients$SANS)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS depth and SANS scores") +
+  labs(y="SANS", x = "depth of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot32
+```
+
+#cobre
+# pcs length
+```{r}
+cobre_L_PCSlength <- filter(cobre_HalluFinal, L_PCSlength!=0)
+
+cobre_correl_hallu <- filter(cobre_L_PCSlength, group_names=="H+")
+cobre_correl_hallu
+cor1 <- cor.test(cobre_correl_hallu$L_PCSlength, cobre_correl_hallu$P3, use="complete.obs", method="pearson") #left side
+cor1
+cor_plot1 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot1
+
+mcic_correl_delu <- filter(cobre_L_PCSlength, P1>2)
+cor2 <- cor.test(mcic_correl_delu$L_PCSlength, mcic_correl_delu$P1, use="complete.obs", method="pearson")
+cor2
+cor_plot2 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and delusions severity") +
+  labs(y="delusions", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot2
+
+cor3 <- cor.test(patients$L_PCSlength, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor3
+cor_plot3 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot3
+
+cor4 <- cor.test(patients$L_PCSlength, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor4
+cor_plot4 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot4
+
+cor5 <- cor.test(patients$R_PCSlength, patients$P3, use="complete.obs", method="pearson") #right side
+cor5
+cor_plot5 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot5
+
+cor6 <- cor.test(patients$R_PCSlength, patients$P1, use="complete.obs", method="pearson")
+cor6
+cor_plot6 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and delusions severity") +
+  labs(y="delusions", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot6
+
+cor7 <- cor.test(patients$R_PCSlength, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor7
+cor_plot7 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot7
+
+cor8 <- cor.test(patients$R_PCSlength, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor8
+cor_plot8 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8
+
+cor8.1 <- cor.test(patients$L_PCSlength, patients$PANSS_general, use="complete.obs", method="pearson")
+cor8.1
+cor_plot8.1 <- ggplot(patients, aes(x=patients$L_PCSlength, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8.1
+
+cor8.2 <- cor.test(patients$L_PCSlength, patients$PANSS_total, use="complete.obs", method="pearson")
+cor8.2
+cor_plot8.2 <- ggplot(patients, aes(x=patients$L_PCSlength, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8.2
+
+cor8.3 <- cor.test(patients$R_PCSlength, patients$PANSS_general, use="complete.obs", method="pearson")
+cor8.3
+cor_plot8.3 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8.3
+
+cor8.4 <- cor.test(patients$R_PCSlength, patients$PANSS_total, use="complete.obs", method="pearson")
+cor8.4
+cor_plot8.4 <- ggplot(patients, aes(x=patients$R_PCSlength, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS length and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "length of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot8.4
+```
+
+# pcs depth
+```{r}
+cor9 <- cor.test(patients$L_PCSdepth, patients$P3, use="complete.obs", method="pearson") #left side
+cor9
+cor_plot9 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot9
+     
+cor10 <- cor.test(patients$L_PCSdepth, patients$P1, use="complete.obs", method="pearson")
+cor10
+cor_plot10 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot10
+     
+cor11 <- cor.test(patients$L_PCSdepth, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor11
+cor_plot11 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot11
+
+cor11.1 <- cor.test(patients$L_PCSdepth, patients$PANSS_general, use="complete.obs", method="pearson")
+cor11.1
+cor_plot11.1 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot11.1
+
+cor11.2 <- cor.test(patients$L_PCSdepth, patients$PANSS_total, use="complete.obs", method="pearson")
+cor11.2
+cor_plot11.2 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot11.2
+     
+cor12 <- cor.test(patients$L_PCSdepth, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor12
+cor_plot11 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot11
+
+cor13 <- cor.test(patients$R_PCSdepth, patients$P3, use="complete.obs", method="pearson") #right side
+cor13
+cor_plot13 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot13
+     
+cor14 <- cor.test(patients$R_PCSdepth, patients$P1, use="complete.obs", method="pearson")
+cor14
+cor_plot14 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot14
+     
+cor15 <- cor.test(patients$R_PCSdepth, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor15
+cor_plot15 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot15
+     
+cor16 <- cor.test(patients$R_PCSdepth, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor16
+cor_plot16 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot16
+
+cor16.1 <- cor.test(patients$L_PCSdepth, patients$PANSS_general, use="complete.obs", method="pearson")
+cor16.1
+cor_plot16.1 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot16.1
+
+cor16.2 <- cor.test(patients$L_PCSdepth, patients$PANSS_total, use="complete.obs", method="pearson")
+cor16.2
+cor_plot16.2 <- ggplot(patients, aes(x=patients$L_PCSdepth, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot16.2
+
+cor16.3 <- cor.test(patients$R_PCSdepth, patients$PANSS_general, use="complete.obs", method="pearson")
+cor16.3
+cor_plot16.3 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot16.3
+
+cor16.4 <- cor.test(patients$R_PCSdepth, patients$PANSS_total, use="complete.obs", method="pearson")
+cor16.4
+cor_plot16.4 <- ggplot(patients, aes(x=patients$R_PCSdepth, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right PCS depth and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "depth of the right PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot16.4
+```
+
+# sts length
+```{r}
+patients <- filter(mcic_cobre, clinical_status==2, L_STSlength!="NA", R_STSlength!="NA") #filter only the patients with sts
+patients
+
+cor17 <- cor.test(patients$L_STSlength, patients$P3, use="complete.obs", method="pearson") #left side
+cor17
+cor_plot17 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot1
+
+cor18 <- cor.test(patients$L_STSlength, patients$P1, use="complete.obs", method="pearson")
+cor18
+cor_plot18 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and delusions severity") +
+  labs(y="delusions", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot18
+
+cor19 <- cor.test(patients$L_STSlength, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor19
+cor_plot19 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and Positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot19
+
+cor20 <- cor.test(patients$L_STSlength, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor20
+cor_plot20 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and Negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot20
+
+cor20.1 <- cor.test(patients$L_STSlength, patients$PANSS_general, use="complete.obs", method="pearson")
+cor20.1
+cor_plot20.1 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS length and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "length of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot20.1
+
+cor20.2 <- cor.test(patients$L_STSlength, patients$PANSS_total, use="complete.obs", method="pearson")
+cor20.2
+cor_plot20.2 <- ggplot(patients, aes(x=patients$L_STSlength, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS length and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "length of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot20.2
+
+cor21 <- cor.test(patients$R_STSlength, patients$P3, use="complete.obs", method="pearson") #right side
+cor21
+cor_plot21 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and hallucinations severity") +
+  labs(y="hallucination severity", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot21
+
+cor22 <- cor.test(patients$R_STSlength, patients$P1, use="complete.obs", method="pearson")
+cor22
+cor_plot22 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and delusions severity") +
+  labs(y="delusions", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot22
+
+cor23 <- cor.test(patients$R_STSlength, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor23
+cor_plot23 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot23
+
+cor24 <- cor.test(patients$R_STSlength, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor24
+cor_plot24 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot24
+
+cor24.1 <- cor.test(patients$R_STSlength, patients$PANSS_general, use="complete.obs", method="pearson")
+cor24.1
+cor_plot24.1 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot24.1
+
+cor24.2 <- cor.test(patients$R_STSlength, patients$PANSS_total, use="complete.obs", method="pearson")
+cor24.2
+cor_plot24.2 <- ggplot(patients, aes(x=patients$R_STSlength, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the right STS length and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "length of the right STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot24.2
+```
+
+# sts depth
+```{r}
+cobre_L_STSdepth <- filter(cobre_HalluFinal, L_STSdepth!=0)
+
+cobre_correl_hallu <- filter(cobre_L_STSdepth, group_names=="H+")
+cobre_correl_hallu
+
+cor25 <- cor.test(cobre_correl_hallu$L_STSdepth, cobre_correl_hallu$P3, use="complete.obs", method="pearson") #left side
+cor25
+cor_plot25 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left PCS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the left PCS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot25
+
+cobre_correl_delu <- filter(cobre_L_STSdepth, P1>2)
+cor26 <- cor.test(cobre_correl_delu$L_STSdepth, cobre_correl_delu$P1, use="complete.obs", method="pearson")
+cor26
+cor_plot26 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot26
+     
+cor27 <- cor.test(patients$L_STSdepth, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor27
+cor_plot27 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot27
+     
+cor28 <- cor.test(patients$L_STSdepth, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor28
+cor_plot28 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot28
+
+cor28.1 <- cor.test(patients$L_STSdepth, patients$PANSS_general, use="complete.obs", method="pearson")
+cor28.1
+cor_plot28.1 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot28.1
+
+cor28.2 <- cor.test(patients$L_STSdepth, patients$PANSS_total, use="complete.obs", method="pearson")
+cor28.2
+cor_plot28.2 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot28.2
+
+cor29 <- cor.test(patients$L_STSdepth, patients$P3, use="complete.obs", method="pearson") #right side
+cor29
+cor_plot29 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$P3)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and hallucinations severity") +
+  labs(y="hallucination severity", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot29
+     
+cor30 <- cor.test(patients$L_STSdepth, patients$P1, use="complete.obs", method="pearson")
+cor30
+cor_plot30 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$P1)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and delusions severity") +
+  labs(y="delusions", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot30
+     
+cor31 <- cor.test(patients$L_STSdepth, patients$PANSS_positive, use="complete.obs", method="pearson")
+cor31
+cor_plot31 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_positive)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_positive PANSS scores") +
+  labs(y="PANSS_positive PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot31
+     
+cor32 <- cor.test(patients$L_STSdepth, patients$PANSS_negative, use="complete.obs", method="pearson")
+cor32
+cor_plot32 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_negative)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_negative PANSS scores") +
+  labs(y="PANSS_negative PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot32
+
+cor32.1 <- cor.test(patients$L_STSdepth, patients$PANSS_general, use="complete.obs", method="pearson")
+cor32.1
+cor_plot32.1 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_general)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_general PANSS scores") +
+  labs(y="PANSS_general PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot32.1
+
+cor32.2 <- cor.test(patients$L_STSdepth, patients$PANSS_total, use="complete.obs", method="pearson")
+cor32.2
+cor_plot32.2 <- ggplot(patients, aes(x=patients$L_STSdepth, y=patients$PANSS_total)) +
+  geom_point() +
+  geom_smooth(method=lm , color="red", fill="#69b3a2", se=TRUE) +
+  theme_light() +
+  ggtitle("correlation between the left STS depth and PANSS_total PANSS scores") +
+  labs(y="PANSS_total PANSS", x = "depth of the left STS") +
+  theme(plot.title = element_text(hjust = 0.5))
+cor_plot32.2
+```
+
+
+# AI analyses
+
+```{r}
+hist(mcic_cobre$AI_PCSlength,
+     freq= FALSE, 
+     xlab = "AI PCS length (mm)", ylab = "Density", 
+     main = "Distribution of AI PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$AI_PCSlength, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$AI_PCSdepth,
+     freq= FALSE, 
+     xlab = "AI PCS depth (mm)", ylab = "Density", 
+     main = "Distribution of AI PCS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$AI_PCSdepth, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$AI_STSlength,
+     freq= FALSE, 
+     xlab = "AI STS length (mm)", ylab = "Density", 
+     main = "Distribution of AI STS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$AI_STSlength, na.rm=TRUE), col="red")
+
+hist(mcic_cobre$AI_STSdepth,
+     freq= FALSE, 
+     xlab = "AI STS depth (mm)", ylab = "Density", 
+     main = "Distribution of AI STS length", 
+     cex.axis=0.8, cex.lab=0.8,cex.main = 1)
+lines(density(mcic_cobre$AI_STSdepth, na.rm=TRUE), col="red")
+
+```
+
+#tests for mcic + cobre
+# AI analyses for the pcs - 2 groups
+```{r}
+mcic_cobre[is.na(mcic_cobre)] <- 0
+anova_pcs_length_ai <- lm(AI_PCSlength~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_pcs_length_ai)
+emmeans(anova_pcs_length_ai, pairwise~clinical_status)
+
+anova_pcs_depth_ai <- lm(AI_PCSdepth~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_pcs_depth_ai)
+emmeans(anova_pcs_depth_ai, pairwise~clinical_status)
+```
+
+# AI analyses for the pcs - 3 groups
+```{r}
+anova_pcs_length_ai_groups <- aov(AI_PCSlength~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_pcs_length_ai_groups)
+emmeans(anova_pcs_length_ai_groups, pairwise~group)
+
+anova_pcs_depth_ai_groups <- aov(AI_PCSdepth~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_pcs_depth_ai_groups)
+emmeans(anova_pcs_depth_ai_groups, pairwise~group)
+```
+
+# AI analyses for the sts - 2 groups
+```{r}
+anova_sts_length_ai <- aov(AI_STSlength~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_sts_length_ai)
+emmeans(anova_sts_length_ai, pairwise~clinical_status)
+
+anova_sts_depth_ai <- aov(AI_STSdepth~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_sts_depth_ai)
+emmeans(anova_sts_depth_ai, pairwise~clinical_status)
+```
+
+# AI analyses for the sts - 3 groups
+```{r}
+anova_sts_length_ai_group <- aov(AI_STSlength~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_sts_length_ai_group)
+emmeans(anova_sts_length_ai_group, pairwise~group)
+
+anova_sts_depth_ai_group <- aov(AI_STSdepth~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_sts_depth_ai_group)
+emmeans(anova_sts_depth_ai_group, pairwise~group)
+```
+
+#tests for mcic only
+# AI analyses for the pcs - 2 groups
+```{r}
+anova_pcs_length_ai <- aov(AI_PCSlength~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_pcs_length_ai)
+emmeans(anova_pcs_length_ai, pairwise~clinical_status)
+
+anova_pcs_depth_ai <- aov(AI_PCSdepth~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_pcs_depth_ai)
+emmeans(anova_pcs_depth_ai, pairwise~clinical_status)
+```
+
+# AI analyses for the pcs - 3 groups
+```{r}
+anova_pcs_length_ai <- aov(AI_PCSlength~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_pcs_length_ai)
+emmeans(anova_pcs_length_ai, pairwise~group)
+
+anova_pcs_depth_ai <- aov(AI_PCSdepth~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_pcs_depth_ai)
+emmeans(anova_pcs_depth_ai, pairwise~group)
+```
+
+# AI analyses for the sts - 2 groups
+```{r}
+anova_sts_length_ai <- aov(AI_STSlength~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_sts_length_ai)
+emmeans(anova_sts_length_ai, pairwise~clinical_status)
+
+anova_sts_depth_ai <- aov(AI_STSdepth~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_sts_depth_ai)
+emmeans(anova_sts_depth_ai, pairwise~clinical_status)
+```
+
+# AI analyses for the sts - 3 groups
+```{r}
+anova_sts_length_ai <- aov(AI_STSlength~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #length
+summary(anova_sts_length_ai)
+emmeans(anova_sts_length_ai, pairwise~group)
+
+anova_sts_depth_ai <- aov(AI_STSdepth~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #depth
+summary(anova_sts_depth_ai)
+emmeans(anova_sts_depth_ai, pairwise~group)
+```
+
+#tests for cobre only
+# AI analyses for the pcs - 2 groups
+```{r}
+#anova_pcs_length_ai <- aov(AI_PCSlength~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #length
+#summary(anova_pcs_length_ai)
+#emmeans(anova_pcs_length_ai, pairwise~clinical_status)
+
+kruskal.test(AI_PCSlength ~ clinical_status, data=mcic_cobre) # because the distribution of the PCS is not normal
+
+#anova_pcs_depth_ai <- aov(AI_PCSdepth~as.factor(clinical_status)+age+site+sex+eTIV, data=mcic_cobre) #depth
+#summary(anova_pcs_depth_ai)
+#emmeans(anova_pcs_depth_ai, pairwise~clinical_status)
+
+kruskal.test(AI_PCSdepth ~ clinical_status, data=mcic_cobre) # because the distribution of the PCS is not normal
+```
+
+# AI analyses for the pcs - 3 groups
+```{r}
+#anova_pcs_length_ai <- aov(AI_PCSlength~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #length
+#summary(anova_pcs_length_ai)
+#emmeans(anova_pcs_length_ai, pairwise~group)
+
+kruskal.test(AI_PCSlength ~ group, data=mcic_cobre) # because the distribution of the PCS is not normal
+
+#anova_pcs_depth_ai <- aov(AI_PCSdepth~as.factor(group)+age+site+sex+eTIV, data=mcic_cobre) #depth
+#summary(anova_pcs_depth_ai)
+#emmeans(anova_pcs_depth_ai, pairwise~group)
+
+kruskal.test(AI_PCSdepth ~ group, data=mcic_cobre) # because the distribution of the PCS is not normal
+```
+
+# AI analyses for the sts - 2 groups
+```{r}
+anova_sts_length_ai <- aov(AI_STSlength~as.factor(clinical_status), data=mcic_cobre) #length
+summary(anova_sts_length_ai)
+TukeyHSD(anova_sts_length_ai)
+
+anova_sts_depth_ai <- aov(AI_STSdepth~as.factor(clinical_status), data=mcic_cobre) #depth
+summary(anova_sts_depth_ai)
+TukeyHSD(anova_sts_depth_ai)
+```
+
+# AI analyses for the sts - 3 groups
+```{r}
+anova_sts_length_ai <- aov(AI_STSlength~as.factor(group), data=mcic_cobre) #length
+summary(anova_sts_length_ai)
+TukeyHSD(anova_sts_length_ai)
+
+anova_sts_depth_ai <- aov(AI_STSdepth~as.factor(group), data=mcic_cobre) #depth
+summary(anova_sts_depth_ai)
+TukeyHSD(anova_sts_depth_ai)
+```
+
+
+
+
